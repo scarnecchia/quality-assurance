@@ -27,11 +27,16 @@ def load_code_checks() -> tuple[tuple[FormatCheckDef, ...], tuple[LengthCheckDef
     with open(_SPEC_PATH) as f:
         spec = json.load(f)
 
+    if "format_checks" not in spec:
+        raise ConfigError("code_checks.json missing 'format_checks' key")
+    if "length_checks" not in spec:
+        raise ConfigError("code_checks.json missing 'length_checks' key")
+
     format_checks: list[FormatCheckDef] = []
     length_checks: list[LengthCheckDef] = []
 
     # Parse format checks (check_id 223)
-    for i, check_dict in enumerate(spec.get("format_checks", [])):
+    for i, check_dict in enumerate(spec["format_checks"]):
         required_fields = {
             "check_id",
             "table_key",
@@ -74,7 +79,7 @@ def load_code_checks() -> tuple[tuple[FormatCheckDef, ...], tuple[LengthCheckDef
         )
 
     # Parse length checks (check_id 228)
-    for i, check_dict in enumerate(spec.get("length_checks", [])):
+    for i, check_dict in enumerate(spec["length_checks"]):
         required_fields = {
             "check_id",
             "table_key",

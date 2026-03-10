@@ -139,12 +139,14 @@ def _convert_sas_to_parquet(sas_path: Path, chunk_size: int = 500_000) -> Path:
         combined = pl.concat(chunks)
         combined.write_parquet(tmp_path)
     else:
-        pl.DataFrame().write_parquet(tmp_path)
+        combined = pl.DataFrame()
+        combined.write_parquet(tmp_path)
 
     log.warning(
         "converted SAS file to temp parquet",
         sas_path=str(sas_path),
         tmp_path=str(tmp_path),
+        n_rows=combined.height,
     )
     return tmp_path
 

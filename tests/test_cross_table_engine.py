@@ -245,7 +245,7 @@ class TestLengthConsistency:
             reference_table=None,
             reference_column=None,
             table_group=("enrollment", "diagnosis"),
-        target_column=None,
+            target_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -286,7 +286,7 @@ class TestLengthConsistency:
             reference_table=None,
             reference_column=None,
             table_group=("enrollment", "diagnosis"),
-        target_column=None,
+            target_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -525,7 +525,7 @@ class TestColumnMismatch:
             source_table="demographic",
             column_a="Hispanic",
             column_b="ImputedHispanic",
-        target_column=None,
+            target_column=None,
             reference_table=None,
             source_column=None,
             reference_column=None,
@@ -591,7 +591,7 @@ class TestErrorHandling:
             reference_table="enrollment",
             source_column="NonExistentColumn",
             reference_column="PatID",
-        target_column=None,
+            target_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -618,7 +618,7 @@ class TestTableFiltering:
             reference_table="enrollment",
             source_column="PatID",
             reference_column="PatID",
-        target_column=None,
+            target_column=None,
         )
 
         check2 = CrossTableCheckDef(
@@ -630,7 +630,7 @@ class TestTableFiltering:
             reference_table="enrollment",
             source_column="PatID",
             reference_column="PatID",
-        target_column=None,
+            target_column=None,
         )
 
         results = run_cross_table_checks(
@@ -655,7 +655,7 @@ class TestTableFiltering:
             reference_table="enrollment",
             source_column="PatID",
             reference_column="PatID",
-        target_column=None,
+            target_column=None,
         )
 
         results = run_cross_table_checks(
