@@ -32,11 +32,17 @@ def build_validation(
             validation = validation.col_vals_not_null(columns=col.name)
 
         if col.allowed_values is not None:
-            validation = validation.col_vals_in_set(
-                columns=col.name,
-                set=col.allowed_values,
-                na_pass=col.missing_allowed,
-            )
+            if col.missing_allowed:
+                validation = validation.col_vals_in_set(
+                    columns=col.name,
+                    set=col.allowed_values,
+                    pre=lambda df, col_name=col.name: df.filter(pl.col(col_name).is_not_null()),
+                )
+            else:
+                validation = validation.col_vals_in_set(
+                    columns=col.name,
+                    set=col.allowed_values,
+                )
 
         if col.col_type == "Character" and col.length is not None:
             pattern = f"^.{{0,{col.length}}}$"
