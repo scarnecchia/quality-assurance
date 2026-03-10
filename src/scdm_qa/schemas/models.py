@@ -23,6 +23,15 @@ class ColumnDef:
 
 
 @dataclass(frozen=True)
+class L1CheckDef:
+    check_id: str  # SAS CheckID, e.g. "122"
+    table_key: str  # normalised table key, e.g. "dispensing"
+    column: str  # target column name, e.g. "NDC"
+    check_type: str  # "leading_spaces" | "unexpected_zeros" | "non_numeric" | "not_populated"
+    severity: str  # "Fail" | "Warn" | "Note"
+
+
+@dataclass(frozen=True)
 class TableSchema:
     table_name: str
     table_key: str  # normalised key, e.g. "enrollment"
