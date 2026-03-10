@@ -55,9 +55,9 @@ def run_cross_table_checks(
 
                 conn.execute(f'CREATE VIEW "{table_key}" AS SELECT * FROM read_parquet(\'{safe_path}\')')
                 registered_views.add(table_key)
-                log.info(f"registered view {table_key}", extra={"path": str(file_path)})
+                log.info("registered view", table_key=table_key, path=str(file_path))
             except Exception as e:
-                log.warning(f"failed to register table {table_key}", extra={"error": str(e)})
+                log.warning("failed to register table", table_key=table_key, error=str(e))
 
         # Filter checks if table_filter is specified
         checks_to_run = checks
@@ -72,19 +72,17 @@ def run_cross_table_checks(
         for check in checks_to_run:
             # Verify referenced tables exist
             if check.source_table not in registered_views:
-                log.warning(f"skipping check {check.check_id}: source table {check.source_table} not in config")
+                log.warning("skipping check: source table not in config", check_id=check.check_id, table=check.source_table)
                 continue
             if check.reference_table and check.reference_table not in registered_views:
-                log.warning(
-                    f"skipping check {check.check_id}: reference table {check.reference_table} not in config"
-                )
+                log.warning("skipping check: reference table not in config", check_id=check.check_id, table=check.reference_table)
                 continue
 
             try:
                 result = _run_check(conn, check, config)
                 results.append(result)
             except duckdb.Error as e:
-                log.error(f"check {check.check_id} failed with DuckDB error: {e}")
+                log.error("check failed with DuckDB error", check_id=check.check_id, error=str(e))
                 results.append(
                     StepResult(
                         step_index=-1,
@@ -104,14 +102,14 @@ def run_cross_table_checks(
             try:
                 conn.close()
             except Exception as e:
-                log.warning(f"failed to close DuckDB connection", extra={"error": str(e)})
+                log.warning("failed to close DuckDB connection", error=str(e))
 
         # Clean up temp parquet files
         for tmp_path in temp_parquet_files:
             try:
                 tmp_path.unlink()
             except Exception as e:
-                log.warning(f"failed to delete temp parquet file {tmp_path}", extra={"error": str(e)})
+                log.warning("failed to delete temp parquet file", path=str(tmp_path), error=str(e))
 
     return results
 
@@ -145,7 +143,8 @@ def _convert_sas_to_parquet(sas_path: Path, chunk_size: int = 500_000) -> Path:
 
     log.warning(
         "converted SAS file to temp parquet",
-        extra={"sas_path": str(sas_path), "tmp_path": str(tmp_path)},
+        sas_path=str(sas_path),
+        tmp_path=str(tmp_path),
     )
     return tmp_path
 
@@ -410,7 +409,7 @@ def _handle_length_excess(
         schema = get_schema(source)
         col_def = schema.get_column(col)
     except KeyError as e:
-        log.warning(f"could not find schema for table {source}: {e}")
+        log.warning("could not find schema for table", table=source, error=str(e))
         return StepResult(
             step_index=-1,
             assertion_type="cross_table",

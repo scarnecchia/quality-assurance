@@ -392,15 +392,13 @@ class TestLengthExcess:
 
     def test_flags_actual_much_smaller_than_declared(self, tmp_path: Path) -> None:
         """Test AC1.7: Actual max length < declared * 0.5 is flagged."""
+        import unittest.mock
         pytest.importorskip("duckdb")
 
         # Create diagnosis table for testing length_excess check
-        # PDX in schema has length=1
-        # We test the failing case where actual length is much smaller than declared
         diagnosis_df = pl.DataFrame({
             "PatID": ["P001", "P002", "P003"],
-            "DX": ["E11.9", "I10", "J45.9"],
-            "PDX": ["1", "0", "1"],  # actual max length=1
+            "DX": ["AB", "CD", "EF"],  # actual max length = 2
         })
         diagnosis_path = tmp_path / "diagnosis.parquet"
         diagnosis_df.write_parquet(diagnosis_path)
@@ -410,28 +408,54 @@ class TestLengthExcess:
             max_failing_rows=500,
         )
 
-        # Check with declared length of 100, actual max is 1 (much smaller than 50)
+        # Create a mock schema where DX has declared length = 100
+        # actual_max = 2, threshold = 100 * 0.5 = 50
+        # 2 < 50 is true, so should trigger n_failed = 1
+        from scdm_qa.schemas.models import TableSchema, ColumnDef
+
+        mock_col_def = ColumnDef(
+            name="DX",
+            col_type="Character",
+            missing_allowed=True,
+            length=100,
+            allowed_values=None,
+            definition="Diagnosis code",
+            example="E11.9",
+        )
+        mock_schema = TableSchema(
+            table_name="diagnosis",
+            table_key="diagnosis",
+            description="Diagnosis table",
+            sort_order=(),
+            unique_row=(),
+            columns=(mock_col_def,),
+            conditional_rules=(),
+        )
+
         check = CrossTableCheckDef(
             check_id="209",
             check_type="length_excess",
             severity="Warn",
-            description="Actual PDX length much smaller than declared (100)",
+            description="Actual DX length much smaller than declared (100)",
             source_table="diagnosis",
-            source_column="DX",  # "DX" has max length 5, we'll test with a larger declared
+            source_column="DX",
             target_column=None,
             reference_table=None,
             reference_column=None,
         )
 
-        results = run_cross_table_checks(config, (check,))
+        with unittest.mock.patch(
+            "scdm_qa.validation.cross_table.get_schema", return_value=mock_schema
+        ):
+            results = run_cross_table_checks(config, (check,))
+
         assert len(results) == 1
         result = results[0]
         assert result.check_id == "209"
-        # DX column has max actual length 5 (from "E11.9", "I10  ", "J45.9")
-        # This should flag if declared length is > 10 (so 5 < 10*0.5 = 5 doesn't trigger)
-        # We expect this to pass since DX is reasonably sized in our schema
-        # Let's verify the actual length is captured
-        assert result.failing_rows is None or result.failing_rows.height >= 0
+        # DX column has actual max length 2, declared 100
+        # 2 < 100*0.5 = 50, so should fail
+        assert result.n_failed == 1, f"Expected n_failed == 1, got {result.n_failed}"
+        assert result.failing_rows is not None
 
     def test_passes_when_actual_large_enough(self, tmp_path: Path) -> None:
         """Test AC1.7: When actual max length is >= declared * 0.5, check passes."""
