@@ -9,6 +9,7 @@ import pytest
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.validation.global_checks import (
+    check_cause_of_death,
     check_date_ordering,
     check_not_populated,
     check_sort_order,
@@ -643,3 +644,221 @@ class TestDateOrdering:
         assert results[0].n_passed + results[0].n_failed == 2
         assert results[0].n_failed == 1
         assert results[0].n_passed == 1
+
+
+class TestCauseOfDeath:
+    """Test suite for check_cause_of_death (L2 checks 236, 237)."""
+
+    def test_check_236_detects_missing_underlying_cause(self) -> None:
+        """Test AC2.3: Check 236 flags patients with no CauseType='U' record."""
+        schema = get_schema("cause_of_death")
+        # Patient P1 has CauseType='C' and 'I' but no 'U'
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "CauseType": ["C", "I"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        result_236 = results[0]
+        assert result_236.check_id == "236"
+        assert result_236.n_failed >= 1
+        assert result_236.assertion_type == "cause_of_death"
+
+    def test_check_237_detects_multiple_underlying_causes(self) -> None:
+        """Test AC2.7: Check 237 flags patients with >1 CauseType='U' records."""
+        schema = get_schema("cause_of_death")
+        # Patient P3 has two CauseType='U' records
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P3", "P3"],
+                "CauseType": ["U", "U"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        result_237 = results[1]
+        assert result_237.check_id == "237"
+        assert result_237.n_failed >= 1
+        assert result_237.assertion_type == "cause_of_death"
+
+    def test_exactly_one_u_passes_both_checks(self) -> None:
+        """Test AC2.7: Patient with exactly one 'U' and other types passes both checks."""
+        schema = get_schema("cause_of_death")
+        # Patient P2 has exactly one CauseType='U' plus other types
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P2", "P2", "P2"],
+                "CauseType": ["U", "C", "I"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        result_236 = results[0]
+        result_237 = results[1]
+        # P2 passes check 236 (has one 'U')
+        assert result_236.n_failed == 0
+        # P2 passes check 237 (has exactly one 'U', not more)
+        assert result_237.n_failed == 0
+
+    def test_check_ids_are_236_and_237(self) -> None:
+        """Test AC4.1: Results have correct check_id values."""
+        schema = get_schema("cause_of_death")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "CauseType": ["C"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        assert results[0].check_id == "236"
+        assert results[1].check_id == "237"
+
+    def test_severity_is_fail(self) -> None:
+        """Test AC4.1: Both results have severity='Fail'."""
+        schema = get_schema("cause_of_death")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "CauseType": ["C"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        assert results[0].severity == "Fail"
+        assert results[1].severity == "Fail"
+
+    def test_returns_empty_list_for_non_cod_table(self) -> None:
+        """Test that non-cause_of_death tables return empty list."""
+        schema = get_schema("demographic")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "Birth_Date": [1000],
+                "Sex": ["F"],
+                "Hispanic": ["Y"],
+                "Race": ["1"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+        assert results == []
+
+    def test_multiple_chunks_accumulation(self) -> None:
+        """Test that records accumulate correctly across chunks."""
+        schema = get_schema("cause_of_death")
+        # Split records across chunks
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "CauseType": ["U", "C"],
+            }),
+            pl.DataFrame({
+                "PatID": ["P2", "P2"],
+                "CauseType": ["C", "I"],  # No 'U'
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        result_236 = results[0]
+        result_237 = results[1]
+        # Total patients: 2 (P1 and P2)
+        # Check 236: P2 fails (no 'U'), P1 passes
+        assert result_236.n_failed == 1
+        assert result_236.n_passed == 1
+        # Check 237: both pass (P1 has 1 'U', P2 has 0 'U')
+        assert result_237.n_failed == 0
+        assert result_237.n_passed == 2
+
+    def test_multiple_patients_with_various_scenarios(self) -> None:
+        """Test mixed scenarios: missing U, multiple U, correct U."""
+        schema = get_schema("cause_of_death")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1", "P2", "P2", "P2", "P3", "P3"],
+                "CauseType": ["C", "I", "U", "C", "I", "U", "U"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        result_236 = results[0]
+        result_237 = results[1]
+        # P1: no 'U' (fails 236)
+        # P2: one 'U' (passes both)
+        # P3: two 'U' (fails 237)
+        assert result_236.n_failed == 1  # Only P1
+        assert result_236.n_passed == 2  # P2 and P3
+        assert result_237.n_failed == 1  # Only P3
+        assert result_237.n_passed == 2  # P1 and P2
+
+    def test_failing_rows_are_capped_at_max_failing_rows(self) -> None:
+        """Test that failing row samples are bounded by max_failing_rows."""
+        schema = get_schema("cause_of_death")
+        # Create 10 patients with no 'U'
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": [f"P{i}" for i in range(10)],
+                "CauseType": ["C"] * 10,
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks, max_failing_rows=5)
+
+        assert len(results) == 2
+        result_236 = results[0]
+        # All 10 patients fail check 236
+        assert result_236.n_failed == 10
+        # But failing_rows is sampled to max_failing_rows
+        assert result_236.failing_rows is not None
+        assert result_236.failing_rows.height == 5
+
+    def test_empty_dataframe_returns_zero_counts(self) -> None:
+        """Test that empty dataframe returns results with zero passed/failed."""
+        schema = get_schema("cause_of_death")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": [],
+                "CauseType": [],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+        # Empty table: 0 patients total, so 0 passed and 0 failed for both checks
+        assert len(results) == 2
+        assert results[0].n_passed == 0
+        assert results[0].n_failed == 0
+        assert results[1].n_passed == 0
+        assert results[1].n_failed == 0
+
+    def test_missing_columns_returns_empty_list(self) -> None:
+        """Test that chunks without required columns return empty list."""
+        schema = get_schema("cause_of_death")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                # CauseType is missing
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+        assert results == []
+
+    def test_column_names_are_correct(self) -> None:
+        """Test that results reference the CauseType column."""
+        schema = get_schema("cause_of_death")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "CauseType": ["C"],
+            }),
+        ])
+        results = check_cause_of_death(schema, chunks)
+
+        assert len(results) == 2
+        assert results[0].column == "CauseType"
+        assert results[1].column == "CauseType"
