@@ -123,29 +123,3 @@ ENC_RATE_THRESHOLDS: dict[str, float] = {
     "AV": 0.10,
     "OA": 0.10,
 }
-
-
-def is_valid_enc_combination(
-    enc_type: str,
-    ddate_state: str,
-    discharge_disposition: str | None,
-    discharge_status: str | None,
-) -> bool:
-    """Check if an ENC row matches valid combination rules.
-
-    Returns True if the combination is valid.
-    """
-    rules = ENC_COMBINATION_RULES.get(enc_type)
-    if rules is None:
-        return False  # Unknown EncType
-
-    ddate_required, disp_required, status_required = rules
-
-    if ddate_required and ddate_state == "Null":
-        return False
-    if disp_required and discharge_disposition is None:
-        return False
-    if status_required and discharge_status is None:
-        return False
-
-    return True

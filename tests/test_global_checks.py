@@ -1313,6 +1313,48 @@ class TestEncCombinations:
         assert check_244.n_failed == 0
         assert check_244.n_passed == 1
 
+    def test_invalid_combo_ip_missing_discharge_disposition(self) -> None:
+        """Test AC2.4: Check 244 flags IP rows where Discharge_Disposition is null (required)."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1", "E2"],
+                "PatID": ["P1", "P2"],
+                "EncounterDate": [1000, 2000],
+                "EncType": ["IP", "IP"],
+                "DDate": [1500, 1600],  # Both have DDate present
+                "Discharge_Disposition": [None, "2"],  # E1 missing Discharge_Disposition (invalid for IP)
+                "Discharge_Status": ["A", "A"],
+                "Admitting_Source": ["01", "01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_244 = next(r for r in results if r.check_id == "244")
+        assert check_244.n_failed == 1  # E1 is invalid
+        assert check_244.n_passed == 1
+
+    def test_invalid_combo_ip_missing_discharge_status(self) -> None:
+        """Test AC2.4: Check 244 flags IP rows where Discharge_Status is null (required)."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1", "E2"],
+                "PatID": ["P1", "P2"],
+                "EncounterDate": [1000, 2000],
+                "EncType": ["IP", "IP"],
+                "DDate": [1500, 1600],  # Both have DDate present
+                "Discharge_Disposition": ["1", "2"],
+                "Discharge_Status": [None, "A"],  # E1 missing Discharge_Status (invalid for IP)
+                "Admitting_Source": ["01", "01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_244 = next(r for r in results if r.check_id == "244")
+        assert check_244.n_failed == 1  # E1 is invalid
+        assert check_244.n_passed == 1
+
     def test_valid_combo_av_with_nulls(self) -> None:
         """Test AC2.4: Check 244 passes when AV has null DDate, Disposition, Status."""
         schema = get_schema("encounter")
