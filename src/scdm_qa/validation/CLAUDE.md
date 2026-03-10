@@ -1,0 +1,32 @@
+# Validation Domain
+
+Last verified: 2026-03-09
+
+## Purpose
+Runs per-chunk pointblank validation against SCDM schemas and accumulates results across chunks into a single coherent result per table.
+
+## Contracts
+- **Exposes**: `run_validation(reader, schema, ...) -> ValidationResult`, `check_uniqueness(...)`, `check_sort_order(...)`, `StepResult`, `ValidationResult`
+- **Guarantees**: Results accumulate correctly across chunks (pass/fail counts merge). Failing row samples are bounded by `max_failing_rows`. Global checks (uniqueness, sort order) are separate from per-chunk validation.
+- **Expects**: A `TableReader` that yields `polars.DataFrame` chunks. A `TableSchema` with validation rules.
+
+## Dependencies
+- **Uses**: schemas (for `build_validation`, `TableSchema`), readers (via `TableReader`), pointblank, polars, optionally duckdb (fast-path uniqueness)
+- **Used by**: pipeline
+- **Boundary**: Does not produce reports or handle I/O beyond reading chunks
+
+## Key Decisions
+- Chunked accumulation: Validation runs per-chunk, `ValidationAccumulator` merges step results across chunks to handle datasets larger than memory
+- DuckDB fast-path for uniqueness: When duckdb is installed, uniqueness checks use SQL `GROUP BY` instead of polars; falls back gracefully
+- Profiling piggybacks on validation: `ProfilingAccumulator` is called inside the validation loop to avoid a second scan
+
+## Invariants
+- `StepResult` and `ValidationResult` are frozen dataclasses
+- `f_failed` and `f_passed` are derived properties, never stored
+- Failing row samples never exceed `max_failing_rows`
+
+## Key Files
+- `runner.py` - Main validation orchestrator
+- `accumulator.py` - `ValidationAccumulator` for cross-chunk merging
+- `results.py` - `StepResult`, `ValidationResult` data models
+- `global_checks.py` - Uniqueness and sort order checks
