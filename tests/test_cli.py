@@ -278,8 +278,8 @@ class TestComputeExitCode:
         # 1% failure rate < 5% threshold
         assert compute_exit_code([outcome]) == 1
 
-    def test_warn_severity_exceeds_threshold_returns_2(self) -> None:
-        """Warn-severity failures exceeding threshold → exit 2."""
+    def test_warn_severity_exceeds_threshold_returns_1(self) -> None:
+        """Warn-severity failures exceeding threshold → exit 1 (caps at 1)."""
         step = self._make_step(
             n_failed=10,
             n_passed=90,
@@ -288,8 +288,8 @@ class TestComputeExitCode:
         )
         vr = self._make_validation_result([step])
         outcome = TableOutcome(table_key="demographic", success=True, validation_result=vr)
-        # 10% failure rate > 5% threshold
-        assert compute_exit_code([outcome], error_threshold=0.05) == 2
+        # 10% failure rate > 5% threshold, but Warn checks cap at exit 1
+        assert compute_exit_code([outcome], error_threshold=0.05) == 1
 
     def test_fail_severity_below_threshold_returns_1(self) -> None:
         """Fail-severity failures below threshold → exit 1."""

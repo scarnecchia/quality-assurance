@@ -271,7 +271,9 @@ def compute_exit_code(
                 continue
             if step.n_failed > 0:
                 has_failures = True
-                if step.f_failed > error_threshold:
+                # Only Fail/None severity can escalate to exit 2 on threshold exceedance
+                # Warn checks cap at exit 1
+                if step.severity != "Warn" and step.f_failed > error_threshold:
                     has_threshold_exceedance = True
 
     if has_threshold_exceedance:

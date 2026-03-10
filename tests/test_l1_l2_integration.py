@@ -91,6 +91,34 @@ class TestCheckIDCoverage:
                     if step.check_id == "122":
                         assert step.n_failed == 0, "Check 122 should pass without leading spaces"
 
+    def test_check_122_leading_spaces_fail(self, tmp_path: Path) -> None:
+        """Check 122: Leading spaces - violation."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        cod_df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "COD": [" E10", "E11"],  # P1 has leading space → check 122 violation
+            "CodeType": ["10", "10"],
+            "CauseType": ["U", "U"],
+            "Source": ["medical_record", "medical_record"],
+            "Confidence": ["1", "1"],
+        })
+        cod_df.write_parquet(data_dir / "cause_of_death.parquet")
+
+        config = self._make_config(data_dir, tmp_path / "reports", "cause_of_death")
+        outcomes = run_pipeline(config)
+
+        # Check 122 should appear with failures
+        found = False
+        for outcome in outcomes:
+            if outcome.validation_result:
+                for step in outcome.validation_result.steps:
+                    if step.check_id == "122" and step.n_failed > 0:
+                        found = True
+                        assert step.severity == "Warn"  # Check 122 has Warn severity
+        assert found, "Check 122 should have failures for leading spaces"
+
     def test_check_124_unexpected_zeros_fail(self, tmp_path: Path) -> None:
         """Check 124: Unexpected zeros in RxSup - violation."""
         data_dir = tmp_path / "data"
@@ -347,6 +375,37 @@ class TestCheckIDCoverage:
                     if step.check_id == "226":
                         assert step.n_failed == 0, "Check 226 should pass with ADate <= DDate"
 
+    def test_check_226_date_ordering_fail(self, tmp_path: Path) -> None:
+        """Check 226: Date ordering - violation."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        encounter_df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "EncounterID": ["E1", "E2"],
+            "EncType": ["IP", "AV"],
+            "ADate": [1000, 2000],
+            "DDate": [900, 2100],  # P1: DDate < ADate → check 226 violation
+            "DRG": ["A01", "A02"],
+            "Discharge_Disposition": ["1", None],
+            "Discharge_Status": ["A", None],
+            "Admitting_Source": ["01", "01"],
+        })
+        encounter_df.write_parquet(data_dir / "encounter.parquet")
+
+        config = self._make_config(data_dir, tmp_path / "reports", "encounter")
+        outcomes = run_pipeline(config)
+
+        # Check 226 should appear with failures
+        found = False
+        for outcome in outcomes:
+            if outcome.validation_result:
+                for step in outcome.validation_result.steps:
+                    if step.check_id == "226" and step.n_failed > 0:
+                        found = True
+                        assert step.severity == "Fail"
+        assert found, "Check 226 should have failures for invalid date ordering"
+
     def test_check_236_missing_underlying_cause_pass(self, tmp_path: Path) -> None:
         """Check 236: Missing underlying cause - clean data."""
         data_dir = tmp_path / "data"
@@ -372,6 +431,34 @@ class TestCheckIDCoverage:
                     if step.check_id == "236":
                         assert step.n_failed == 0, "Check 236 should pass with underlying causes present"
 
+    def test_check_236_missing_underlying_cause_fail(self, tmp_path: Path) -> None:
+        """Check 236: Missing underlying cause - violation."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        cod_df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "COD": ["I10", "I15"],
+            "CodeType": ["10", "10"],
+            "CauseType": ["O", "O"],  # P1 has no CauseType='U' → check 236 violation
+            "Source": ["medical_record", "medical_record"],
+            "Confidence": ["1", "1"],
+        })
+        cod_df.write_parquet(data_dir / "cause_of_death.parquet")
+
+        config = self._make_config(data_dir, tmp_path / "reports", "cause_of_death")
+        outcomes = run_pipeline(config)
+
+        # Check 236 should appear with failures
+        found = False
+        for outcome in outcomes:
+            if outcome.validation_result:
+                for step in outcome.validation_result.steps:
+                    if step.check_id == "236" and step.n_failed > 0:
+                        found = True
+                        assert step.severity == "Fail"
+        assert found, "Check 236 should have failures for missing underlying causes"
+
     def test_check_237_multiple_underlying_causes_pass(self, tmp_path: Path) -> None:
         """Check 237: Multiple underlying causes - clean data."""
         data_dir = tmp_path / "data"
@@ -396,6 +483,34 @@ class TestCheckIDCoverage:
                 for step in outcome.validation_result.steps:
                     if step.check_id == "237":
                         assert step.n_failed == 0, "Check 237 should pass with single underlying cause"
+
+    def test_check_237_multiple_underlying_causes_fail(self, tmp_path: Path) -> None:
+        """Check 237: Multiple underlying causes - violation."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        cod_df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "COD": ["I10", "I15"],  # Two underlying causes in same patient
+            "CodeType": ["10", "10"],
+            "CauseType": ["U", "U"],  # Both underlying → check 237 violation
+            "Source": ["medical_record", "medical_record"],
+            "Confidence": ["1", "1"],
+        })
+        cod_df.write_parquet(data_dir / "cause_of_death.parquet")
+
+        config = self._make_config(data_dir, tmp_path / "reports", "cause_of_death")
+        outcomes = run_pipeline(config)
+
+        # Check 237 should appear with failures
+        found = False
+        for outcome in outcomes:
+            if outcome.validation_result:
+                for step in outcome.validation_result.steps:
+                    if step.check_id == "237" and step.n_failed > 0:
+                        found = True
+                        assert step.severity == "Fail"
+        assert found, "Check 237 should have failures for multiple underlying causes"
 
     def test_check_244_invalid_enc_combination_pass(self, tmp_path: Path) -> None:
         """Check 244: Invalid ENC field combinations - clean data."""
@@ -453,7 +568,6 @@ class TestCheckIDCoverage:
                 for step in outcome.validation_result.steps:
                     if step.check_id == "245":
                         assert step.n_failed == 0, "Check 245 should pass when invalid rate within threshold"
-
 
 class TestBackwardCompatibility:
     """Test backward compatibility with pre-existing checks.
