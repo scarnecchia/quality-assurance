@@ -14,6 +14,7 @@ dependencies = [
     "pointblank>=0.6,<1",
     "pyreadstat>=1.3,<2",
     "great-tables>=0.21,<1",
+    "jinja2>=3,<4",
 ]
 
 [project.scripts]
