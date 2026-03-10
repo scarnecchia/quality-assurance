@@ -100,6 +100,8 @@ def _uniqueness_duckdb(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_df if failing_df.height > 0 else None,
+        check_id=None,
+        severity=None,
     )
 
 
@@ -147,6 +149,8 @@ def _uniqueness_in_memory(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_rows,
+        check_id=None,
+        severity=None,
     )
 
 
@@ -198,6 +202,8 @@ def check_sort_order(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_rows,
+        check_id=None,
+        severity=None,
     )
 
 

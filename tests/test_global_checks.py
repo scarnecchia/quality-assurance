@@ -115,3 +115,24 @@ class TestSortOrder:
         result = check_sort_order(schema, chunks)
         assert result is not None
         assert result.n_failed == 0
+
+
+class TestGlobalCheckCheckIdNone:
+    def test_uniqueness_check_has_check_id_none(self) -> None:
+        schema = get_schema("demographic")
+        chunks = iter([
+            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
+        ])
+        result = check_uniqueness(Path("dummy.sas7bdat"), schema, chunks=chunks)
+        assert result is not None
+        assert result.check_id is None
+
+    def test_sort_order_check_has_check_id_none(self) -> None:
+        schema = get_schema("demographic")
+        chunks = iter([
+            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
+            pl.DataFrame({"PatID": ["P3", "P4"], "Birth_Date": [3, 4], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
+        ])
+        result = check_sort_order(schema, chunks)
+        assert result is not None
+        assert result.check_id is None
