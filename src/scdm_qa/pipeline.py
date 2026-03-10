@@ -14,7 +14,15 @@ from scdm_qa.reporting.index import ReportSummary, make_report_summary, save_ind
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.schemas.custom_rules import load_custom_rules
-from scdm_qa.validation.global_checks import check_cause_of_death, check_date_ordering, check_not_populated, check_sort_order, check_uniqueness
+from scdm_qa.validation.global_checks import (
+    check_cause_of_death,
+    check_date_ordering,
+    check_enrollment_gaps,
+    check_not_populated,
+    check_overlapping_spans,
+    check_sort_order,
+    check_uniqueness,
+)
 from scdm_qa.validation.results import StepResult, ValidationResult
 from scdm_qa.validation.runner import run_validation
 
@@ -183,6 +191,24 @@ def _process_table(
         cod_reader = create_reader(file_path, chunk_size=config.chunk_size)
         cod_steps = check_cause_of_death(schema, cod_reader.chunks(), max_failing_rows=config.max_failing_rows)
         global_steps.extend(cod_steps)
+
+    # L2 checks: enrollment overlaps and gaps (checks 215, 216)
+    if schema.table_key == "enrollment":
+        overlap_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        overlap_step = check_overlapping_spans(
+            file_path, schema, overlap_reader.chunks(),
+            max_failing_rows=config.max_failing_rows,
+        )
+        if overlap_step is not None:
+            global_steps.append(overlap_step)
+
+        gaps_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        gaps_step = check_enrollment_gaps(
+            schema, gaps_reader.chunks(),
+            max_failing_rows=config.max_failing_rows,
+        )
+        if gaps_step is not None:
+            global_steps.append(gaps_step)
 
     if global_steps:
         all_steps = list(validation_result.steps) + global_steps
