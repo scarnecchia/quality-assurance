@@ -1,0 +1,36 @@
+[build-system]
+requires = ["uv_build>=0.10.2,<0.11.0"]
+build-backend = "uv_build"
+
+[project]
+name = "scdm-qa"
+version = "0.1.0"
+description = "Validates health data tables conforming to the Sentinel Common Data Model (SCDM)"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.24,<1",
+    "structlog>=25,<26",
+    "polars>=1.38,<2",
+    "pointblank>=0.6,<1",
+    "pyreadstat>=1.3,<2",
+    "great-tables>=0.21,<1",
+]
+
+[project.scripts]
+scdm-qa = "scdm_qa.cli:app"
+
+[project.optional-dependencies]
+duckdb = [
+    "duckdb>=1,<2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9,<10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
