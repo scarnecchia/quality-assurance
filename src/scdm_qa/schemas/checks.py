@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scdm_qa.schemas.models import L1CheckDef
+from scdm_qa.schemas.models import L1CheckDef, DateOrderingDef
 
 # Check 122: Leading spaces in character fields
 # Source: SAS lkp_all_l1 where CheckID=122
@@ -77,3 +77,16 @@ def get_not_populated_checks_for_table(table_key: str) -> tuple[L1CheckDef, ...]
         c for c in ALL_L1_CHECKS
         if c.table_key == table_key and c.check_type == "not_populated"
     )
+
+
+# Check 226: Date ordering violations
+# Source: SAS lkp_all_l2 where CheckID=226
+DATE_ORDERING_DEFS: tuple[DateOrderingDef, ...] = (
+    DateOrderingDef("226", "encounter", "ADate", "DDate", "Fail", "ADate <= DDate"),
+    DateOrderingDef("226", "enrollment", "Enr_Start", "Enr_End", "Fail", "Enr_Start <= Enr_End"),
+)
+
+
+def get_date_ordering_checks_for_table(table_key: str) -> tuple[DateOrderingDef, ...]:
+    """Return date ordering check definitions for a given table."""
+    return tuple(d for d in DATE_ORDERING_DEFS if d.table_key == table_key)

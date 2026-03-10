@@ -32,6 +32,16 @@ class L1CheckDef:
 
 
 @dataclass(frozen=True)
+class DateOrderingDef:
+    check_id: str  # "226"
+    table_key: str  # e.g. "encounter"
+    date_a: str  # column that should be <= date_b
+    date_b: str  # column that should be >= date_a
+    severity: str  # "Fail" | "Warn"
+    description: str  # human-readable, e.g. "ADate <= DDate"
+
+
+@dataclass(frozen=True)
 class TableSchema:
     table_name: str
     table_key: str  # normalised key, e.g. "enrollment"
