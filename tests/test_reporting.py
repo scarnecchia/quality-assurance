@@ -128,8 +128,8 @@ class TestSaveTableReport__CheckID:
         html = path.read_text()
         assert "122" in html, "check_id '122' should render in HTML"
 
-    def test_renders_empty_dash_for_none_check_id(self, tmp_path: Path) -> None:
-        """Verify that None check_id renders as '—' in the validation table."""
+    def test_renders_step_index_for_none_check_id(self, tmp_path: Path) -> None:
+        """Verify that None check_id falls back to step_index in the Step column."""
         vr = ValidationResult(
             table_key="demographic",
             table_name="Demographic Table",
@@ -151,8 +151,7 @@ class TestSaveTableReport__CheckID:
         pr = _make_profiling_result()
         path = save_table_report(tmp_path, "demographic", vr, pr)
         html = path.read_text()
-        # Check that the empty-dash placeholder appears in the validation table
-        assert "—" in html, "Empty check_id should render as '—'"
+        assert "1" in html, "step_index should render when check_id is None"
 
 
 class TestSaveIndex:
