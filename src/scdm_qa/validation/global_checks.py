@@ -430,3 +430,195 @@ def check_cause_of_death(
             severity="Fail",
         ),
     ]
+
+
+def check_overlapping_spans(
+    file_path: Path,
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame] | None = None,
+    *,
+    max_failing_rows: int = 500,
+) -> StepResult | None:
+    """Check 215: Detect overlapping enrollment spans within the same patient.
+
+    For each patient, sorts spans by Enr_Start and checks if any span's
+    Enr_Start is strictly less than the previous span's Enr_End.
+    """
+    if schema.table_key != "enrollment":
+        return None
+
+    # DuckDB fast path for Parquet files
+    if file_path.suffix.lower() == ".parquet":
+        result = _overlapping_spans_duckdb(file_path, max_failing_rows)
+        if result is not None:
+            return result
+        log.info("duckdb not available, falling back to in-memory overlap check")
+
+    return _overlapping_spans_in_memory(chunks, max_failing_rows)
+
+
+def _overlapping_spans_duckdb(
+    file_path: Path,
+    max_failing_rows: int,
+) -> StepResult | None:
+    try:
+        import duckdb
+    except ImportError:
+        return None
+
+    safe_path = str(file_path).replace("'", "''")
+    # Self-join: find pairs where same patient has overlapping spans
+    overlap_query = f"""
+        WITH spans AS (
+            SELECT "PatID", "Enr_Start", "Enr_End",
+                   LAG("Enr_End") OVER (PARTITION BY "PatID" ORDER BY "Enr_Start") AS prev_end
+            FROM read_parquet('{safe_path}')
+        )
+        SELECT "PatID", "Enr_Start", "Enr_End", prev_end
+        FROM spans
+        WHERE "Enr_Start" < prev_end
+        LIMIT {max_failing_rows}
+    """
+    count_query = f"""
+        WITH spans AS (
+            SELECT "PatID", "Enr_Start", "Enr_End",
+                   LAG("Enr_End") OVER (PARTITION BY "PatID" ORDER BY "Enr_Start") AS prev_end
+            FROM read_parquet('{safe_path}')
+        )
+        SELECT COUNT(*) FROM spans WHERE "Enr_Start" < prev_end
+    """
+    total_query = f"SELECT COUNT(*) FROM read_parquet('{safe_path}')"
+
+    conn = duckdb.connect()
+    try:
+        try:
+            total_rows = conn.execute(total_query).fetchone()[0]
+            n_failed = conn.execute(count_query).fetchone()[0] or 0
+            failing_df = conn.execute(overlap_query).pl()
+        except Exception as e:
+            log.warning("duckdb overlap check failed", error=str(e))
+            return None
+    finally:
+        conn.close()
+
+    n_passed = total_rows - n_failed
+
+    return StepResult(
+        step_index=-1,
+        assertion_type="overlapping_spans",
+        column="PatID, Enr_Start, Enr_End",
+        description="No overlapping enrollment spans (check 215)",
+        n_passed=n_passed,
+        n_failed=n_failed,
+        failing_rows=failing_df if failing_df.height > 0 else None,
+        check_id="215",
+        severity="Fail",
+    )
+
+
+def _overlapping_spans_in_memory(
+    chunks: Iterator[pl.DataFrame] | None,
+    max_failing_rows: int,
+) -> StepResult | None:
+    if chunks is None:
+        return None
+
+    all_spans: list[pl.DataFrame] = []
+    total_rows = 0
+
+    for chunk in chunks:
+        cols = ["PatID", "Enr_Start", "Enr_End"]
+        if all(c in chunk.columns for c in cols):
+            all_spans.append(chunk.select(cols))
+            total_rows += chunk.height
+
+    if not all_spans:
+        return None
+
+    combined = pl.concat(all_spans).sort("PatID", "Enr_Start")
+
+    # Detect overlaps: within each patient, Enr_Start < prev Enr_End
+    with_prev = combined.with_columns(
+        pl.col("Enr_End").shift(1).over("PatID").alias("prev_end")
+    )
+    overlaps = with_prev.filter(
+        pl.col("prev_end").is_not_null() & (pl.col("Enr_Start") < pl.col("prev_end"))
+    )
+
+    n_failed = overlaps.height
+    n_passed = total_rows - n_failed
+
+    return StepResult(
+        step_index=-1,
+        assertion_type="overlapping_spans",
+        column="PatID, Enr_Start, Enr_End",
+        description="No overlapping enrollment spans (check 215)",
+        n_passed=n_passed,
+        n_failed=n_failed,
+        failing_rows=overlaps.head(max_failing_rows) if overlaps.height > 0 else None,
+        check_id="215",
+        severity="Fail",
+    )
+
+
+def check_enrollment_gaps(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> StepResult | None:
+    """Check 216: Detect non-bridged enrollment gaps.
+
+    For each patient, sorts spans by Enr_Start and checks for gaps where
+    previous Enr_End + 1 day < current Enr_Start. Adjacent spans
+    (Enr_End + 1 day == next Enr_Start) pass.
+
+    Handles both integer (SAS date) and pl.Date dtypes.
+    """
+    if schema.table_key != "enrollment":
+        return None
+
+    all_spans: list[pl.DataFrame] = []
+    total_rows = 0
+
+    for chunk in chunks:
+        cols = ["PatID", "Enr_Start", "Enr_End"]
+        if all(c in chunk.columns for c in cols):
+            all_spans.append(chunk.select(cols))
+            total_rows += chunk.height
+
+    if not all_spans:
+        return None
+
+    combined = pl.concat(all_spans).sort("PatID", "Enr_Start")
+
+    with_prev = combined.with_columns(
+        pl.col("Enr_End").shift(1).over("PatID").alias("prev_end")
+    )
+
+    # Gap: prev_end + 1 day < Enr_Start (more than 1 day between spans)
+    # Use dtype-aware increment: duration(days=1) for Date, +1 for integers
+    enr_dtype = combined["Enr_Start"].dtype
+    if enr_dtype == pl.Date or enr_dtype == pl.Datetime:
+        one_day = pl.duration(days=1)
+    else:
+        one_day = 1
+
+    gaps = with_prev.filter(
+        pl.col("prev_end").is_not_null() & ((pl.col("prev_end") + one_day) < pl.col("Enr_Start"))
+    )
+
+    n_failed = gaps.height
+    n_passed = total_rows - n_failed if total_rows > n_failed else 0
+
+    return StepResult(
+        step_index=-1,
+        assertion_type="enrollment_gaps",
+        column="PatID, Enr_Start, Enr_End",
+        description="No non-bridged enrollment gaps (check 216)",
+        n_passed=n_passed,
+        n_failed=n_failed,
+        failing_rows=gaps.head(max_failing_rows) if gaps.height > 0 else None,
+        check_id="216",
+        severity="Warn",
+    )
