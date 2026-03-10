@@ -1,0 +1,2948 @@
+{
+  "scdm_tables": [
+    {
+      "table_name": "Enrollment Table",
+      "description": "The SCDM Enrollment Table has a start/stop structure that contains one record per continuous enrollment period. Patients with medical coverage, drug coverage, or both should be included. A unique combination of PatID, Enr_Start, Enr_End, MedCov, DrugCov, Chart, PlanType, and PayerType identifies a unique record. A break in enrollment (of at least one day) or a change in either the medical or drug coverage variables should generate a new record.",
+      "sort_order": [
+        "PatID",
+        "Enr_Start",
+        "Enr_End",
+        "MedCov",
+        "DrugCov",
+        "Chart"
+      ],
+      "unique_row": [
+        "PatID",
+        "Enr_Start",
+        "Enr_End",
+        "MedCov",
+        "DrugCov",
+        "Chart",
+        "PlanType",
+        "PayerType"
+      ],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. A new enrollment period generates a new record, but the same person should have the same PatID on subsequent records. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "Enr_Start",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date of the beginning of the enrollment period. If the exact date is unknown, use the first day of the month. Enr_Start should not be before January 1, 2000.",
+          "example": "1/1/2019",
+          "notes": [
+            "Adjacent and overlapping enrollment periods with the same PatID, Enr_Start, Enr_End, MedCov, DrugCov, and Chart values should be collapsed. Enrollment periods separated by more than one day should not be bridged. For example, an Enr_End date of 1/31/2019 should be bridged with an Enr_Start date of 2/1/2019, but should not be bridged with an Enr_Start date of 2/2/2019.",
+            "For instances where an overlapping enrollment span occurs due to the PlanType or PayerType variables, both spans should have the value of that variable set to Other, and be collapsed into a single span."
+          ]
+        },
+        {
+          "name": "Enr_End",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date of the end of the enrollment period. If the exact date is unknown, use the last day of the month.",
+          "example": "12/31/2019",
+          "notes": [
+            "Adjacent and overlapping enrollment periods with the same PatID, Enr_Start, Enr_End, MedCov, DrugCov, and Chart values should be collapsed. Enrollment periods separated by more than one day should not be bridged.",
+            "Enr_End should not be imputed using the date of death found in the Death table."
+          ]
+        },
+        {
+          "name": "MedCov",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "Y",
+              "description": "Yes"
+            },
+            {
+              "code": "N",
+              "description": "No"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            },
+            {
+              "code": "A",
+              "description": "Ambulatory Only"
+            }
+          ],
+          "definition": "Mark as Y if the health plan has any responsibility for covering medical care for the member during this enrollment period (i.e., if you expect to observe medical care provided to this member during the enrollment period). Mark as A if only ambulatory visit coverage is provided.",
+          "example": "Y"
+        },
+        {
+          "name": "DrugCov",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "Y",
+              "description": "Yes"
+            },
+            {
+              "code": "N",
+              "description": "No"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Mark as Y if the health plan has any responsibility for covering outpatient prescription drugs for the member during this enrollment period (i.e., if you expect to observe outpatient pharmacy dispensings for this member during this enrollment period).",
+          "example": "Y"
+        },
+        {
+          "name": "Chart",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "Y",
+              "description": "Yes"
+            },
+            {
+              "code": "N",
+              "description": "No"
+            }
+          ],
+          "definition": "Chart abstraction flag to answer the question, \"Are you able to request charts for this member?\" This flag does not address chart availability. Mark as Y if there are no contractual restrictions between you and the member (or sponsor) that would prohibit you from requesting any chart for this member.",
+          "example": "Y",
+          "notes": [
+            "Chart variable aims to identify enrollment periods for which medical charts cannot be requested. Potential scenarios include: Charts cannot be requested for Medicare members (all enrollment periods for Medicare members should be assigned Chart=N), Charts cannot be requested for administrative services only (ASO) populations (all ASO enrollment periods should be assigned Chart=N). If there is no definitive information indicating that medical charts cannot be requested for member enrollment period(s), records should be assigned Chart=Y."
+          ]
+        },
+        {
+          "name": "PlanType",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "F",
+              "description": "Fee for service"
+            },
+            {
+              "code": "H",
+              "description": "HMO (Health Maintenance Organization)"
+            },
+            {
+              "code": "E",
+              "description": "EPO (Exclusive Provider Organization)"
+            },
+            {
+              "code": "P",
+              "description": "PPO (Preferred Provider Organization)"
+            },
+            {
+              "code": "S",
+              "description": "POS (Point of Service)"
+            },
+            {
+              "code": "M",
+              "description": "Other Managed care"
+            },
+            {
+              "code": "O",
+              "description": "Other"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Indicate the type of insurance plan coverage for the patient during the enrollment span.",
+          "example": "O",
+          "notes": [
+            "Adjacent and overlapping enrollment periods with the same PatID, Enr_Start, Enr_End, MedCov, DrugCov, and Chart values should be collapsed.",
+            "For instances where an overlapping enrollment span occurs due to the PlanType or PayerType variables, both spans should have the value of that variable set to Other, and be collapsed into a single span."
+          ]
+        },
+        {
+          "name": "PayerType",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "CO",
+              "description": "Commercial"
+            },
+            {
+              "code": "MC",
+              "description": "Medicare"
+            },
+            {
+              "code": "MD",
+              "description": "Medicaid"
+            },
+            {
+              "code": "OG",
+              "description": "Other Government"
+            },
+            {
+              "code": "OT",
+              "description": "Other"
+            },
+            {
+              "code": "UN",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Indicate the type of payer for the patient's plan during the enrollment span.",
+          "example": "CO",
+          "notes": [
+            "Adjacent and overlapping enrollment periods with the same PatID, Enr_Start, Enr_End, MedCov, DrugCov, and Chart values should be collapsed.",
+            "For instances where an overlapping enrollment span occurs due to the PlanType or PayerType variables, both spans should have the value of that variable set to Other, and be collapsed into a single span."
+          ]
+        }
+      ]
+    },
+    {
+      "table_name": "Demographic Table",
+      "description": "The SCDM Demographic Table contains one record per PatID with the most recent information on Birth_Date, Sex, Race, PostalCode, ImputedRace, ImputedHispanic, and Hispanic.",
+      "sort_order": ["PatID"],
+      "unique_row": ["PatID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "Birth_Date",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date of birth.",
+          "example": "12/5/1971"
+        },
+        {
+          "name": "Sex",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "A",
+              "description": "Ambiguous"
+            },
+            {
+              "code": "F",
+              "description": "Female"
+            },
+            {
+              "code": "M",
+              "description": "Male"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Sex.",
+          "example": "F",
+          "notes": [
+            "At this time the SCDM retains one Race and one Hispanic value per individual."
+          ]
+        },
+        {
+          "name": "Hispanic",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "N",
+              "description": "No"
+            },
+            {
+              "code": "Y",
+              "description": "Yes"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "A person of Cuban, Mexican, Puerto Rican, South or Central American, or other Spanish culture or origin, regardless of race.",
+          "example": "N"
+        },
+        {
+          "name": "Race",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "0",
+              "description": "Unknown"
+            },
+            {
+              "code": "1",
+              "description": "American Indian or Alaska Native"
+            },
+            {
+              "code": "2",
+              "description": "Asian"
+            },
+            {
+              "code": "3",
+              "description": "Black or African American"
+            },
+            {
+              "code": "4",
+              "description": "Native Hawaiian or Other Pacific Islander"
+            },
+            {
+              "code": "5",
+              "description": "White"
+            },
+            {
+              "code": "M",
+              "description": "Multi-racial"
+            }
+          ],
+          "definition": "Please use only one race value per patient.",
+          "example": "2",
+          "notes": [
+            "Data Partners not imputing a value for Race or Hispanic Status should leave ImputedRace or ImputedHispanic missing."
+          ]
+        },
+        {
+          "name": "PostalCode",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Postal/region code",
+          "definition": "USA: First 5 digits of the ZIP code of the patient's most recent primary residence. (5 characters only) Other: Complete postal code or region identifier. (variable length is dependent on code length)",
+          "example": "04090"
+        },
+        {
+          "name": "PostalCode_Date",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Earliest date that the PostalCode is believed to be continuously correct up until the end date of your source data for the ETL. Date will be updated/overwritten as postal code for a patient/member changes over time.",
+          "example": "12/12/2009"
+        },
+        {
+          "name": "ImputedRace",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "0",
+              "description": "Unknown"
+            },
+            {
+              "code": "1",
+              "description": "American Indian or Alaska Native"
+            },
+            {
+              "code": "2",
+              "description": "Asian"
+            },
+            {
+              "code": "3",
+              "description": "Black or African American"
+            },
+            {
+              "code": "4",
+              "description": "Native Hawaiian or Other Pacific Islander"
+            },
+            {
+              "code": "5",
+              "description": "White"
+            },
+            {
+              "code": "M",
+              "description": "Multi-racial"
+            }
+          ],
+          "example": "2",
+          "notes": [
+            "Data Partners may populate ImputedRace or ImputedHispanic, regardless of the value of Race or Hispanic."
+          ]
+        },
+        {
+          "name": "ImputedHispanic",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "N",
+              "description": "No"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            },
+            {
+              "code": "Y",
+              "description": "Yes"
+            }
+          ],
+          "definition": "A person of Cuban, Mexican, Puerto Rican, South or Central American, or other Spanish culture or origin, regardless of race.",
+          "example": "N",
+          "notes": [
+            "Data Partners may populate ImputedRace or ImputedHispanic, regardless of the value of Race or Hispanic."
+          ]
+        }
+      ]
+    },
+    {
+      "table_name": "Dispensing Table",
+      "description": "The SCDM Outpatient Pharmacy Dispensing Table contains one record per unique outpatient pharmacy dispensing. Rollback transactions and other adjustments should be processed before populating this table.",
+      "sort_order": ["PatID", "RxDate"],
+      "unique_row": ["PatID", "RxDate", "Rx_CodeType", "Rx", "ProviderID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "ProviderID",
+          "missing_allowed": "Only SAS special missing .U allowed",
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique provider identifier",
+          "definition": "Identifier for the individual provider who prescribed the drug. As with the PatID, the provider identifier is a pseudo-identifier with a consistent crosswalk to the real identifier. If an individual provider/prescriber can not be identified, set to special missing value .U. This variable links to the Provider table. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "12345",
+          "notes": [
+            "If all ProviderID values are unknown (i.e., set to .U), use Num(3) for the length of the variable."
+          ]
+        },
+        {
+          "name": "RxDate",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Dispensing date (as close as possible to date the person received the dispensing).",
+          "example": "11/29/2005"
+        },
+        {
+          "name": "Rx",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Drug Code",
+          "definition": "Code representing a prescribed medication or medical device. Please expunge any place holders (e.g., '-' or extra digit). Use the fewest number of bytes to contain values for all values of Rx_CodeType.",
+          "example": "00006007431"
+        },
+        {
+          "name": "Rx_CodeType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "ND",
+              "description": "National Drug Code (US)"
+            },
+            {
+              "code": "SN",
+              "description": "SNOMED CT (US)"
+            },
+            {
+              "code": "SK",
+              "description": "SNOMED CT (UK/CPRD)"
+            },
+            {
+              "code": "DM",
+              "description": "Dictionary of Medicines and Devices (UK)"
+            },
+            {
+              "code": "DI",
+              "description": "Drug Identification Number (CA)"
+            },
+            {
+              "code": "RN",
+              "description": "RxNorm (US)"
+            },
+            {
+              "code": "AT",
+              "description": "Anatomical Therapeutic Chemical Classification (DK)"
+            }
+          ],
+          "definition": "Code type of prescribed medication or medical device. This field combined with the Rx field should be used to capture any type of prescribed medication or medical device available in the source data. Other code types may be added as new terminologies are used.",
+          "example": "SK",
+          "notes": [
+            "Rx_CodeType includes options for values that are relevant to medication and medical device codes used in different international jurisdictions."
+          ]
+        },
+        {
+          "name": "RxSup",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "Days supply",
+          "definition": "Number of days that the medication supports based on the number of doses as reported by the pharmacist. This amount is typically found on the dispensings record. It should not be necessary to calculate this variable for use in the SCDM. Positive integer values are expected.",
+          "example": "30",
+          "notes": [
+            "Rollback transactions and other adjustments that are indicative of a dispensing being canceled or not picked up by the member should be processed before populating this table."
+          ]
+        },
+        {
+          "name": "RxAmt",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "Amount dispensed",
+          "definition": "Number of units (pills, tablets, vials) dispensed. Net amount per dispensing. This amount is typically found on the dispensings record. It should not be necessary to calculate this variable for use in the SCDM. Positive values are expected.",
+          "example": "60",
+          "notes": [
+            "Rollback transactions and other adjustments that are indicative of a dispensing being canceled or not picked up by the member should be processed before populating this table."
+          ]
+        }
+      ]
+    },
+    {
+      "table_name": "Encounter Table",
+      "description": "The SCDM Encounter Table contains one record per PatID and EncounterID. Each encounter should have a single record in the SCDM Encounter Table. Each diagnosis and procedure recorded during the encounter should have a separate record in the Diagnosis or Procedure Tables. Rollback transactions and other adjustments should be processed before populating this table.",
+      "sort_order": ["PatID", "ADate"],
+      "unique_row": ["EncounterID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, Prescribing, and Patient-Reported Measures Response tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "For efficiency, medical utilization data is captured in 3 tables: Encounter, Diagnosis, and Procedure. The 3 tables can be used independently or in combination, depending on the protocol."
+          ]
+        },
+        {
+          "name": "ADate",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Encounter or admission date.",
+          "example": "12/24/2019"
+        },
+        {
+          "name": "DDate",
+          "missing_allowed": "Yes, conditional on EncType value. If EncType = IP or IS, only SAS special missing .S is allowed.",
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS Date, .S: Special Missing, .: Missing",
+          "definition": "Discharge date. Should be populated for all Inpatient Hospital Stay (IP) and Non-Acute Institutional Stay (IS) encounter types. May be populated for Emergency Department (ED) encounter types. Should be missing for ambulatory visit (AV or OA) encounter types. For patients still in facility (IP or IS) use special missing value of .S.",
+          "example": "12/31/2019"
+        },
+        {
+          "name": "EncType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "AV",
+              "description": "Ambulatory Visit"
+            },
+            {
+              "code": "ED",
+              "description": "Emergency Department"
+            },
+            {
+              "code": "IP",
+              "description": "Inpatient Hospital Stay"
+            },
+            {
+              "code": "IS",
+              "description": "Non-Acute Institutional Stay"
+            },
+            {
+              "code": "OA",
+              "description": "Other Ambulatory Visit"
+            }
+          ],
+          "definition": "Encounter Type",
+          "example": "IP"
+        },
+        {
+          "name": "FacilityID",
+          "missing_allowed": "Only SAS special missing .U allowed",
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Servicing provider identifier",
+          "definition": "Local facility pseudo-identifier that identifies hospital or clinic in which the encounter occurred. There must be only one facility per encounter. Used for chart abstraction and validation. This variable links to the Facility table. If unavailable, set to special missing value .U. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "45678",
+          "notes": [
+            "If all FacilityID values are unknown (i.e., set to .U), use Num(3) for the length of the variable."
+          ]
+        },
+        {
+          "name": "Discharge_Disposition",
+          "missing_allowed": "Yes, conditional on EncType value",
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "A",
+              "description": "Discharged alive"
+            },
+            {
+              "code": "E",
+              "description": "Expired"
+            },
+            {
+              "code": "S",
+              "description": "Still in facility"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Should be populated for Inpatient Hospital Stay (IP) and Non-Acute Institutional Stay (IS) encounter types. May be populated for Emergency Department (ED) encounter types. Should be missing for ambulatory visit (AV or OA) encounter types.",
+          "example": "A"
+        },
+        {
+          "name": "Discharge_Status",
+          "missing_allowed": "Yes, conditional on EncType value",
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "AF",
+              "description": "Adult Foster Home"
+            },
+            {
+              "code": "AL",
+              "description": "Assisted Living Facility"
+            },
+            {
+              "code": "AM",
+              "description": "Against Medical Advice"
+            },
+            {
+              "code": "AW",
+              "description": "Absent without leave"
+            },
+            {
+              "code": "EX",
+              "description": "Expired"
+            },
+            {
+              "code": "HH",
+              "description": "Home Health"
+            },
+            {
+              "code": "HO",
+              "description": "Home / Self Care"
+            },
+            {
+              "code": "HS",
+              "description": "Hospice"
+            },
+            {
+              "code": "IP",
+              "description": "Other Acute Inpatient Hospital"
+            },
+            {
+              "code": "NH",
+              "description": "Nursing Home"
+            },
+            {
+              "code": "OT",
+              "description": "Other"
+            },
+            {
+              "code": "RH",
+              "description": "Rehabilitation Facility"
+            },
+            {
+              "code": "RS",
+              "description": "Residential Facility"
+            },
+            {
+              "code": "SH",
+              "description": "Still In Facility"
+            },
+            {
+              "code": "SN",
+              "description": "Skilled Nursing Facility"
+            },
+            {
+              "code": "UN",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Should be populated for Inpatient Hospital Stay (IP) and Non-Acute Institutional Stay (IS) encounter types. May be populated for Emergency Department (ED) encounter types. Should be missing for ambulatory visit (AV or OA) encounter types.",
+          "example": "SN",
+          "notes": [
+            "Guidance regarding Discharge_Status is attached in the Discharge Status Code Guidance document."
+          ]
+        },
+        {
+          "name": "DRG",
+          "missing_allowed": "Yes, conditional on EncType value",
+          "type": "Character",
+          "length": 3,
+          "values": "3-digit Diagnosis Related Group",
+          "definition": "Diagnosis Related Group. Should be populated for IP and IS encounter types. May be populated for ED encounter types. Can be missing for IP, IS, ED. Should be missing for AV or OA encounters. Use leading zeroes for codes less than 100.",
+          "example": "372"
+        },
+        {
+          "name": "DRG_Type",
+          "missing_allowed": "Yes, conditional on EncType value",
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "1",
+              "description": "CMS-DRG (old system)"
+            },
+            {
+              "code": "2",
+              "description": "MS-DRG (current system)"
+            }
+          ],
+          "definition": "DRG code version. MS-DRG (current system) began on 10/1/2007. Should be missing for AV or OA encounters. Can be missing for IP, IS, ED.",
+          "example": "1"
+        },
+        {
+          "name": "Admitting_Source",
+          "missing_allowed": "Yes, conditional on EncType value",
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "AF",
+              "description": "Adult Foster Home"
+            },
+            {
+              "code": "AL",
+              "description": "Assisted Living Facility"
+            },
+            {
+              "code": "AV",
+              "description": "Ambulatory Visit"
+            },
+            {
+              "code": "ED",
+              "description": "Emergency Department"
+            },
+            {
+              "code": "HH",
+              "description": "Home Health"
+            },
+            {
+              "code": "HO",
+              "description": "Home / Self Care"
+            },
+            {
+              "code": "HS",
+              "description": "Hospice"
+            },
+            {
+              "code": "IP",
+              "description": "Other Acute Inpatient Hospital"
+            },
+            {
+              "code": "NH",
+              "description": "Nursing Home"
+            },
+            {
+              "code": "OT",
+              "description": "Other"
+            },
+            {
+              "code": "RH",
+              "description": "Rehabilitation Facility"
+            },
+            {
+              "code": "RS",
+              "description": "Residential Facility"
+            },
+            {
+              "code": "SN",
+              "description": "Skilled Nursing Facility"
+            },
+            {
+              "code": "UN",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Should be populated for Inpatient Hospital Stay (IP) and Non-Acute Institutional Stay (IS) encounter types. May be populated for Emergency Department (ED) encounter types. Should be missing for ambulatory visit (AV or OA) encounter types.",
+          "example": "HH"
+        }
+      ]
+    },
+    {
+      "table_name": "Diagnosis Table",
+      "description": "The SCDM Diagnosis Table contains one record per unique combination of PatID, EncounterID, DX_CodeType, DX, and ProviderID. This table should capture all uniquely recorded diagnoses for all encounters, per provider.",
+      "sort_order": ["PatID", "ADate"],
+      "unique_row": ["EncounterID", "DX_CodeType", "DX", "ProviderID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, and Prescribing tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "For efficiency medical utilization data is captured in 3 tables: Encounter, Diagnosis, and Procedure. The 3 tables can be used independently or in combination, depending on the protocol."
+          ]
+        },
+        {
+          "name": "ADate",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Encounter or admission date; Value must match ADate in the Encounter table for the same PatID/ EncounterID combination.",
+          "example": "12/24/2019"
+        },
+        {
+          "name": "ProviderID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique provider identifier",
+          "definition": "Identifier for the individual provider who made the diagnosis. As with the PatID, the ProviderID identifier is a pseudo-identifier with a consistent crosswalk to the real identifier. If an individual provider cannot be identified, populate the ProviderID value with special missing value of .U. This variable links to the Provider table. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "99218766",
+          "notes": [
+            "If all ProviderID values are unknown (i.e., set to .U), use Num(3) for the length of the variable."
+          ]
+        },
+        {
+          "name": "EncType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "AV",
+              "description": "Ambulatory Visit"
+            },
+            {
+              "code": "ED",
+              "description": "Emergency Department"
+            },
+            {
+              "code": "IP",
+              "description": "Inpatient Hospital Stay"
+            },
+            {
+              "code": "IS",
+              "description": "Non-Acute Institutional Stay"
+            },
+            {
+              "code": "OA",
+              "description": "Other Ambulatory Visit"
+            }
+          ],
+          "definition": "Encounter Type",
+          "example": "IP"
+        },
+        {
+          "name": "DX",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Diagnosis code",
+          "definition": "Remove decimal points, site specific suffixes and prefixes. Other codes should be listed as recorded in the source data. Use the fewest number of bytes to contain values for all values of DX_CodeType.",
+          "example": "7615"
+        },
+        {
+          "name": "Dx_Codetype",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "09",
+              "description": "ICD-9-CM"
+            },
+            {
+              "code": "C9",
+              "description": "ICD-9 (Canada)"
+            },
+            {
+              "code": "10",
+              "description": "ICD-10-CM"
+            },
+            {
+              "code": "11",
+              "description": "ICD-11-CM"
+            },
+            {
+              "code": "SM",
+              "description": "SNOMED CT"
+            },
+            {
+              "code": "OT",
+              "description": "Other"
+            }
+          ],
+          "definition": "Diagnosis code type. This field combined with the DX field should be used to capture any type of diagnosis or clinical concept available in the source data. Other code types may be added as new terminologies are used.",
+          "example": "09"
+        },
+        {
+          "name": "OrigDX",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Original diagnosis from source table, if different",
+          "definition": "Used if Data Partner has to map internal codes to standard codes."
+        },
+        {
+          "name": "PDX",
+          "missing_allowed": "Yes, conditional on EncType value",
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "P",
+              "description": "Principal"
+            },
+            {
+              "code": "S",
+              "description": "Secondary"
+            },
+            {
+              "code": "X",
+              "description": "Unable to Classify"
+            },
+            {
+              "code": "' '",
+              "description": "Missing/ Blank"
+            }
+          ],
+          "definition": "Principal discharge diagnosis flag. Populate only for IP and IS encounters. For ED, AV, and OA encounter types, set as missing/blank. One principal diagnosis is expected per Encounter, although in some instances more than one diagnosis may be flagged as principal.",
+          "example": "P"
+        },
+        {
+          "name": "PAdmit",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "N",
+              "description": "No"
+            },
+            {
+              "code": "Y",
+              "description": "Yes"
+            },
+            {
+              "code": "U",
+              "description": "Unknown or unable to determine"
+            },
+            {
+              "code": "X",
+              "description": "Unreported/not used"
+            }
+          ],
+          "definition": "Indicates whether the diagnosis code is indicative of a condition present at admission.",
+          "example": "X",
+          "notes": [
+            "Sentinel Data Partners receive individual guidance for populating the PAdmit field."
+          ]
+        }
+      ]
+    },
+    {
+      "table_name": "Procedure Table",
+      "description": "The SCDM Procedure Table contains one record per unique combination of PatID, EncounterID, Px_CodeType, Px, and ProviderID. This table should capture all uniquely recorded procedures for all encounters, per provider.",
+      "sort_order": ["PatID", "ADate"],
+      "unique_row": ["EncounterID", "Px_CodeType", "Px", "ProviderID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, Prescribing, and Patient-Reported Measures Response tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "For efficiency medical utilization data is captured in 3 tables: Encounter, Diagnosis, and Procedure. The 3 tables can be used independently or in combination, depending on the protocol."
+          ]
+        },
+        {
+          "name": "ADate",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Encounter or admission date; Value must match ADate in the Encounter table for the same PatID/ EncounterID combination.",
+          "example": "12/24/2019"
+        },
+        {
+          "name": "ProviderID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique provider identifier",
+          "definition": "Identifier for the individual provider who made the diagnosis. As with the PatID, the ProviderID identifier is a pseudo-identifier with a consistent crosswalk to the real identifier. If an individual provider cannot be identified, populate the ProviderID value with special missing value of .U. This variable links to the Provider table. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "99218766",
+          "notes": [
+            "If all ProviderID values are unknown (i.e., set to .U), use Num(3) for the length of the variable."
+          ]
+        },
+        {
+          "name": "EncType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "AV",
+              "description": "Ambulatory Visit"
+            },
+            {
+              "code": "ED",
+              "description": "Emergency Department"
+            },
+            {
+              "code": "IP",
+              "description": "Inpatient Hospital Stay"
+            },
+            {
+              "code": "IS",
+              "description": "Non-Acute Institutional Stay"
+            },
+            {
+              "code": "OA",
+              "description": "Other Ambulatory Visit"
+            }
+          ],
+          "definition": "Encounter Type",
+          "example": "IP"
+        },
+        {
+          "name": "PX",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Procedure code",
+          "definition": "Remove decimal points, site specific suffixes and prefixes. Other codes should be listed as recorded in the source data. Convert local codes to standard codes. Use the fewest number of bytes to contain values for all values of Px_CodeType.",
+          "example": "76815"
+        },
+        {
+          "name": "PX_CodeType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "09",
+              "description": "ICD-9-CM"
+            },
+            {
+              "code": "10",
+              "description": "ICD-10-CM"
+            },
+            {
+              "code": "11",
+              "description": "ICD-11-CM"
+            },
+            {
+              "code": "C2",
+              "description": "CPT Category II"
+            },
+            {
+              "code": "C3",
+              "description": "CPT Category III"
+            },
+            {
+              "code": "C4",
+              "description": "CPT-4"
+            },
+            {
+              "code": "CP",
+              "description": "Canadian Classification of Diagnostic"
+            },
+            {
+              "code": "CV",
+              "description": "CDC vaccine CVX codes"
+            },
+            {
+              "code": "CX",
+              "description": "Canadian Classification of Health Interventions"
+            },
+            {
+              "code": "H3",
+              "description": "HCPCS Level III"
+            },
+            {
+              "code": "HC",
+              "description": "HCPCS"
+            },
+            {
+              "code": "LC",
+              "description": "LOINC"
+            },
+            {
+              "code": "LO",
+              "description": "Local homegrown"
+            },
+            {
+              "code": "ND",
+              "description": "NDC"
+            },
+            {
+              "code": "OT",
+              "description": "Other"
+            },
+            {
+              "code": "RE",
+              "description": "Revenue"
+            },
+            {
+              "code": "SK",
+              "description": "SNOMED CT"
+            }
+          ],
+          "definition": "Procedure code type.",
+          "example": "C4"
+        },
+        {
+          "name": "OrigPX",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Original procedure code from source table, if different.",
+          "definition": "Used if Data Partner has to map internal codes to standard codes."
+        }
+      ]
+    },
+    {
+      "table_name": "Prescribing Table",
+      "description": "The SCDM Prescribing Table contains one record per PatID and PrescribingID. This table should capture all uniquely recorded prescription orders, as unique combination of PatID, OrderDate, Rx_CodeType, Rx, and RxRefills.",
+      "sort_order": ["PatID", "OrderDate"],
+      "unique_row": ["PrescribingID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, and Prescribing tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "The Encounter, Diagnosis, Procedure, Inpatient Transfusion, Inpatient Pharmacy, Vital Signs, Mother-Infant Linkage, and Prescribing tables are linked by PatID and EncounterID."
+          ]
+        },
+        {
+          "name": "PrescribingID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique row identifier",
+          "definition": "Arbitrary identifier for each unique Prescribing record. Does not need to be persistent across refreshes, and may be created by any method that achieve a unique identifier per row. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789012345",
+          "notes": [
+            "The Encounter, Diagnosis, Procedure, Inpatient Transfusion, Inpatient Pharmacy, Vital Signs, Mother-Infant Linkage, and Prescribing tables are linked by PatID and EncounterID."
+          ]
+        },
+        {
+          "name": "ProviderID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique provider identifier or Special Missing .U for unknown",
+          "definition": "Provider code for the individual provider who prescribed the medication. The provider code is a pseudo-identifier with a consistent crosswalk to the real identifier and is the same set of pseudo-identifiers for ProviderID in other SCDM tables. If an individual provider can not be identified, populate the ProviderID value with special missing value of .U. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "99218766",
+          "notes": [
+            "If all ProviderID values are unknown (i.e., set to .U), use Num(3) for the length of the variable."
+          ]
+        },
+        {
+          "name": "OrderDate",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "Valid SAS dates",
+          "definition": "Order date of the prescription by the provider",
+          "example": "2/16/2011"
+        },
+        {
+          "name": "Rx_CodeType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "ND",
+              "description": "National Drug Code (US)"
+            },
+            {
+              "code": "SN",
+              "description": "SNOMED CT (US)"
+            },
+            {
+              "code": "SK",
+              "description": "SNOMED CT (UK/CPRD)"
+            },
+            {
+              "code": "DM",
+              "description": "Dictionary of Medicines and Devices (UK)"
+            },
+            {
+              "code": "DI",
+              "description": "Drug Identification Number (CA)"
+            },
+            {
+              "code": "RN",
+              "description": "RxNorm (US)"
+            },
+            {
+              "code": "AT",
+              "description": "Anatomical Therapeutic Chemical Classification (DK)"
+            },
+            {
+              "code": "GP",
+              "description": "Generic Product Identifier"
+            }
+          ],
+          "definition": "Code type of prescribed medication or medical device. This field combined with the Rx field should be used to capture any type of prescribed medication or medical device available in the source data. Other code types may be added as new terminologies are used.",
+          "example": "ND"
+        },
+        {
+          "name": "Rx",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Drug Code",
+          "definition": "Code representing a prescribed medication or medical device. Please expunge any place holders (e.g., '-' or extra digit). Use the fewest number of bytes to contain values for all values of Rx_CodeType.",
+          "example": "00006007431"
+        },
+        {
+          "name": "RxAmt",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "Positive integer values or Special Missing .U for unknown",
+          "definition": "Quantity ordered.",
+          "example": "90"
+        },
+        {
+          "name": "RxSup",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "Positive integer values or Special Missing .U for unknown",
+          "definition": "Number of days supply ordered, as specified by the prescription.",
+          "example": "90"
+        },
+        {
+          "name": "RxSource",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "OD",
+              "description": "Order/EHR"
+            },
+            {
+              "code": "DR",
+              "description": "Derived"
+            },
+            {
+              "code": "UN",
+              "description": "Unknown"
+            },
+            {
+              "code": "OT",
+              "description": "Other"
+            }
+          ],
+          "definition": "Source of the prescribing information.",
+          "example": "OD"
+        },
+        {
+          "name": "RxRoute",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 25,
+          "values": "Fixed list; see Reference Tables",
+          "definition": "Route of medication delivery.",
+          "example": "ORAL_TABLET"
+        },
+        {
+          "name": "RxDoseQuantity",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 8,
+          "values": "Values greater than zero or Special Missing .U for unknown",
+          "definition": "Dose of a given medication, as ordered by the provider.",
+          "example": "120"
+        },
+        {
+          "name": "RxDoseUnit",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 25,
+          "values": "Fixed list; see Reference Tables",
+          "definition": "Units of measure associated with the dose of the medication (i.e., RxDoseQuantity) as ordered by the provider.",
+          "example": "ueq"
+        },
+        {
+          "name": "RxDoseForm",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 40,
+          "values": "Fixed list; see Reference Tables",
+          "definition": "The unit associated with the quantity prescribed. This is equivalent to RxNorm Dose Form. Only valuable if using RxNorm (Rx_CodeType = RN). Can be blank.",
+          "example": "PELLET"
+        },
+        {
+          "name": "RxFreqQuantity",
+          "missing_allowed": "Only SAS special missing .U allowed",
+          "type": "Numeric",
+          "length": 4,
+          "values": "Number per unit in RxFreqUnit; integers or Special Missing .U for unknown",
+          "definition": "Specified frequency of medication per unit of time.",
+          "example": "2"
+        },
+        {
+          "name": "RxFreqUnit",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "D",
+              "description": "Per day"
+            },
+            {
+              "code": "W",
+              "description": "Per week"
+            },
+            {
+              "code": "M",
+              "description": "Per month"
+            },
+            {
+              "code": "O",
+              "description": "Other"
+            }
+          ],
+          "definition": "Frequency unit of administration.",
+          "example": "D"
+        },
+        {
+          "name": "RxRefills",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 3,
+          "values": "0, positive integers, or Special Missing .U for unknown",
+          "definition": "Number of refills ordered (not including the original prescription). If no refills are ordered, the value should be zero.",
+          "example": "2"
+        },
+        {
+          "name": "RxPrnFlag",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "Y",
+              "description": "Yes"
+            },
+            {
+              "code": "N",
+              "description": "No"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Flag to indicate that all or part of medication frequency instructions includes \"as needed.\"",
+          "example": "N"
+        },
+        {
+          "name": "RxDAW",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "Y",
+              "description": "Yes"
+            },
+            {
+              "code": "N",
+              "description": "No"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            },
+            {
+              "code": "O",
+              "description": "Other"
+            }
+          ],
+          "definition": "Flag to indicate whether the provider indicated that the medication order was to be dispensed as written (DAW).",
+          "example": "Y"
+        }
+      ]
+    },
+    {
+      "table_name": "Facility Table",
+      "description": "The SCDM Facility Table contains one record per FacilityID. This table should capture all uniquely recorded facility identifiers in the Encounter table and the Laboratory Results (if populated) tables.",
+      "sort_order": ["FacilityID"],
+      "unique_row": ["FacilityID"],
+      "variables": [
+        {
+          "name": "FacilityID",
+          "missing_allowed": "Only SAS special missing .U allowed",
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Servicing facility identifier",
+          "definition": "Local facility pseudo-identifier that identifies hospital or clinic. Taken from facility claims. Used for chart abstraction and validation.",
+          "example": "12345678",
+          "notes": [
+            "FacilityID links to the same-named variable in the Encounter and Laboratory Results table and must be the same length across both tables."
+          ]
+        },
+        {
+          "name": "Facility_Location",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Geographic location (postal/region code) of servicing facility (not billing location)",
+          "definition": "Should be left blank if missing.",
+          "example": "04090"
+        }
+      ]
+    },
+    {
+      "table_name": "Provider Table",
+      "description": "The SCDM Provider Table contains one record per ProviderID. This table should capture all uniquely recorded individual provider identifiers in the Dispensing, Diagnosis, Procedure, and Prescribing (if populated) tables.",
+      "sort_order": ["ProviderID"],
+      "unique_row": ["ProviderID"],
+      "variables": [
+        {
+          "name": "ProviderID",
+          "missing_allowed": "Only SAS special missing .U allowed",
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique provider identifier",
+          "definition": "Identifier for the individual provider who wrote a prescription in the Prescribing table, was identified in a row in the Dispensing table, made a diagnosis in the Diagnosis table, or performed a procedure or service in the Procedure table. As with the PatID, the provider identifier is a pseudo-identifier with a consistent crosswalk to the real identifier. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "99218766",
+          "notes": [
+            "ProviderID links to the same-named variable in the Dispensing, Diagnosis, Procedure, and if populated, the Prescribing tables. ProviderID must be the same length across all tables."
+          ]
+        },
+        {
+          "name": "Specialty",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Provider specialty, See PVD.specialty table within Reference Tables.",
+          "definition": "Code indicating the medical specialty of the Provider. If an individual provider has more than one specialty, select the specialty under which the provider practices most often. Data Partners are requested to map to the most specific description possible. That is, Map to a 10-character Taxonomy Code if possible; otherwise use a 2-character specialty code. Length of either 2 or 10 per row, aligning with Specialty_CodeType. Use 99 for unknown or undefined individual provider specialty.",
+          "example": "45 or 207X00000X",
+          "notes": [
+            "CMS Provider Taxonomy & Specialty Codes: Use only those values found in \"PVD.specialty\" Table, located within the Reference Tables. These are a subset from the CMS Taxonomy Crosswalk."
+          ]
+        },
+        {
+          "name": "Specialty_CodeType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "2",
+              "description": "2-character code"
+            },
+            {
+              "code": "0",
+              "description": "10-character code"
+            }
+          ],
+          "definition": "2 = a 2-character code as found in the \"PVD.specialty\" Table within the Reference Tables. 0 = a 10-character code as found in the \"PVD.specialty\" Table within the Reference Tables.",
+          "example": "2"
+        }
+      ]
+    },
+    {
+      "table_name": "Laboratory Result Table",
+      "description": "The SCDM Laboratory Result Table contains one record per result/entry. Include only resulted lab tests. Data Partners are strongly encouraged to review the comprehensive Sentinel Common Data Model Laboratory Result Table Documentation for details on how to populate each variable.",
+      "sort_order": ["PatID"],
+      "unique_row": ["LabID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "LabID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique laboratory results/ row identifier",
+          "definition": "Useful to map back to source data. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "027"
+        },
+        {
+          "name": "MS_Test_Name",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 20,
+          "values": "See LAB.ms_test_name within the Reference Tables.",
+          "definition": "Abbreviated test name. Populated for all records. Several LOINC codes (LOINC) and/or local codes (LOCAL_CD) can point to one MS_Test_Name.",
+          "example": "ALP"
+        },
+        {
+          "name": "Result_Type",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "N",
+              "description": "numeric"
+            },
+            {
+              "code": "C",
+              "description": "character"
+            },
+            {
+              "code": "U",
+              "description": "unknown"
+            }
+          ],
+          "definition": "Indicates whether the laboratory test result in Data Partner's source data is Numeric (e.g., 100 ug/mL, <100 ug/mL, or >100 ug/mL) or Character (e.g., +, POS, POSITIVE, or ranges, such as 50-100 mg/mL). Unknown value is populated when MS_Test_Name = Unmapped",
+          "example": "N"
+        }
+      ]
+    },
+    {
+      "table_name": "Vital Signs Table",
+      "description": "The SCDM Vital Signs Table contains one record per result/entry.",
+      "sort_order": ["PatID", "Measure_Date"],
+      "unique_row": null,
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link acronss the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, Prescribing, and Patient-Reported Measures Response tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "The Encounter, Diagnosis, Procedure, Inpatient Transfusion, Inpatient Pharmacy, Vital Signs, Mother-Infant Linkage, and Prescribing tables are linked by PatID and EncounterID."
+          ]
+        },
+        {
+          "name": "Measure_Date",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date the vital signs were measured.",
+          "example": "12/1/2019"
+        },
+        {
+          "name": "Measure_Time",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS time value HH:MM",
+          "definition": "Time associated with the vital signs record. This may be the time an actual blood pressure measurement was taken or it may be a check-in time from encounter.",
+          "example": "10:33"
+        },
+        {
+          "name": "HT",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 8,
+          "values": "Number gt 0",
+          "definition": "Height (in inches). ####.## = If HT can be represented in inches. Only populated if height was taken on this date. If missing, leave blank.",
+          "example": "60.50"
+        },
+        {
+          "name": "WT",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 8,
+          "values": "Number gt 0",
+          "definition": "Weight (in lbs). ####.## = If WT can be represented in pounds. Only populated if weight was taken on this date. If missing, leave blank.",
+          "example": "170.25"
+        },
+        {
+          "name": "Diastolic",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 3,
+          "values": "Integer ge 0",
+          "definition": "Diastolic blood pressure. ### = If Diastolic can be represented in mmHg. Only populated if diastolic blood pressure was taken on this date. If missing, leave blank.",
+          "example": "70"
+        },
+        {
+          "name": "Systolic",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 3,
+          "values": "Integer ge 0",
+          "definition": "Systolic blood pressure. ### = If Systolic can be represented in mmHg. Only populated if systolic blood pressure was taken on this date. If missing, leave blank.",
+          "example": "120"
+        },
+        {
+          "name": "BP_Type",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "E",
+              "description": "Extended"
+            },
+            {
+              "code": "M",
+              "description": "Multiple"
+            },
+            {
+              "code": "O",
+              "description": "Orthostatic"
+            },
+            {
+              "code": "R",
+              "description": "Rooming"
+            }
+          ],
+          "definition": "Type of blood pressure taken.",
+          "example": "E"
+        },
+        {
+          "name": "Position",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "1",
+              "description": "Sitting"
+            },
+            {
+              "code": "2",
+              "description": "Standing"
+            },
+            {
+              "code": "3",
+              "description": "Supine"
+            }
+          ],
+          "definition": "Position for orthostatic blood pressure. If unknown, leave blank.",
+          "example": "1"
+        },
+        {
+          "name": "Tobacco",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "1",
+              "description": "Current user"
+            },
+            {
+              "code": "2",
+              "description": "Never"
+            },
+            {
+              "code": "3",
+              "description": "Quit/former user"
+            },
+            {
+              "code": "4",
+              "description": "Passive"
+            },
+            {
+              "code": "5",
+              "description": "Environmental exposure"
+            },
+            {
+              "code": "6",
+              "description": "Not asked"
+            },
+            {
+              "code": "7",
+              "description": "Conflicting"
+            }
+          ],
+          "definition": "Tobacco status as of the visit date. Unknown values should be left blank. The \"Not asked\" value should be used only when it is a valid response from your system (e.g. this is a valid value for EPIC). The \"Conflicting\" value should be used when you receive tobacco information from multiple sources that disagree.",
+          "example": "3"
+        },
+        {
+          "name": "Tobacco_Type",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "1",
+              "description": "Cigarettes only"
+            },
+            {
+              "code": "2",
+              "description": "Other tobacco only"
+            },
+            {
+              "code": "3",
+              "description": "Cigarettes and other tobacco"
+            },
+            {
+              "code": "4",
+              "description": "None"
+            }
+          ],
+          "definition": "Type of tobacco used. Unknown values should be left blank.",
+          "example": "4"
+        }
+      ]
+    },
+    {
+      "table_name": "Death Table",
+      "description": "The SCDM Death Table contains one record per PatID. When legacy data have conflicting reports, please make a local determination as to which to use. There is typically a 1-2 year lag in death registry data.",
+      "sort_order": ["PatID"],
+      "unique_row": ["PatID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "DeathDt",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date of death.",
+          "example": "1/10/2019"
+        },
+        {
+          "name": "DtImpute",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "B",
+              "description": "Both month and day imputed"
+            },
+            {
+              "code": "D",
+              "description": "Day imputed"
+            },
+            {
+              "code": "M",
+              "description": "Month imputed"
+            },
+            {
+              "code": "N",
+              "description": "Not imputed"
+            }
+          ],
+          "definition": "When DeathDt is imputed, this variable indicates which parts of the date were imputed.",
+          "example": "N"
+        },
+        {
+          "name": "Source",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "L",
+              "description": "Other"
+            },
+            {
+              "code": "N",
+              "description": "National Death Registry"
+            },
+            {
+              "code": "S",
+              "description": "Death files from State/ Region/ Province"
+            },
+            {
+              "code": "T",
+              "description": "Tumor data"
+            },
+            {
+              "code": "O",
+              "description": "Obituary"
+            },
+            {
+              "code": "M",
+              "description": "Social Media"
+            }
+          ],
+          "definition": "Source of death information.",
+          "example": "S"
+        },
+        {
+          "name": "Confidence",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "E",
+              "description": "Excellent"
+            },
+            {
+              "code": "F",
+              "description": "Fair"
+            },
+            {
+              "code": "P",
+              "description": "Poor"
+            }
+          ],
+          "definition": "Confidence that the patient drawn from the Source data represents the actual patient (contrasts with Confidence in the Cause of Death table). If uncertain, use P = Poor.",
+          "example": "E"
+        }
+      ]
+    },
+    {
+      "table_name": "Cause of Death Table",
+      "description": "The SCDM Cause of Death Table can contain multiple COD records per PatID. When legacy data have conflicting reports, please make a local determination as to which to use. There is typically a 1-2 year lag in death registry data.",
+      "sort_order": ["PatID"],
+      "unique_row": ["PatID", "CodeType", "COD", "CauseType", "Source"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "COD",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 8,
+          "values": "Diagnosis code",
+          "definition": "Remove decimal points, site specific suffixes and prefixes.",
+          "example": "J180"
+        },
+        {
+          "name": "CodeType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "09",
+              "description": "ICD-9"
+            },
+            {
+              "code": "10",
+              "description": "ICD-10"
+            },
+            {
+              "code": "NV",
+              "description": "National Vital Statistics Registry Death Code"
+            }
+          ],
+          "definition": "Cause of death code type.",
+          "example": "09"
+        },
+        {
+          "name": "CauseType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "C",
+              "description": "Contributory"
+            },
+            {
+              "code": "I",
+              "description": "Immediate / Primary"
+            },
+            {
+              "code": "O",
+              "description": "Other"
+            },
+            {
+              "code": "U",
+              "description": "Underlying"
+            }
+          ],
+          "definition": "Cause of death type. There should be only one \"Underlying\" code for cause of death, per PatID.",
+          "example": "C"
+        },
+        {
+          "name": "Source",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "L",
+              "description": "Other"
+            },
+            {
+              "code": "N",
+              "description": "National Death Registry"
+            },
+            {
+              "code": "S",
+              "description": "Death files from State/ Region/ Province"
+            },
+            {
+              "code": "T",
+              "description": "Tumor data"
+            },
+            {
+              "code": "O",
+              "description": "Obituary"
+            },
+            {
+              "code": "M",
+              "description": "Social Media"
+            }
+          ],
+          "definition": "Source of cause of death information.",
+          "example": "S"
+        },
+        {
+          "name": "Confidence",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "E",
+              "description": "Excellent"
+            },
+            {
+              "code": "F",
+              "description": "Fair"
+            },
+            {
+              "code": "P",
+              "description": "Poor"
+            }
+          ],
+          "definition": "Confidence that the patient drawn from the Source data represents the actual patient (contrasts with Confidence in the Death table). If uncertain, use P = Poor.",
+          "example": "E"
+        }
+      ]
+    },
+    {
+      "table_name": "Inpatient Pharmacy Table",
+      "description": "The SCDM Inpatient Pharmacy table contains data on inpatient drug administrations. It contains one record per unique combination of PatID, NDC, RxADate, RxATime, and RxID. Each record represents a unique inpatient pharmacy dispensing administration.",
+      "sort_order": ["PatID", "RxADate"],
+      "unique_row": ["RxID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, and Prescribing tables. Use the fewest number of bytes necessary to hold all distinct values; \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "The Encounter, Diagnosis, Procedure, Inpatient Transfusion, Inpatient Pharmacy, Vital Signs, Mother-Infant Linkage, and Prescribing tables are linked by PatID and EncounterID."
+          ]
+        },
+        {
+          "name": "NDC",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 11,
+          "values": "National Drug Code",
+          "definition": "Please expunge any place holders (e.g., '-' or extra digit)",
+          "example": "12345678910"
+        },
+        {
+          "name": "RxID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique Rx administration row identifier",
+          "definition": "Useful to map back to source data. Use the fewest number of bytes necessary to hold all distinct values; \"SAS Lengths\" Reference Table."
+        },
+        {
+          "name": "RxADate",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date value",
+          "definition": "Rx Administration date",
+          "example": "12/1/2019"
+        },
+        {
+          "name": "RxATime",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS time value HH:MM",
+          "definition": "Rx Administration time",
+          "example": "20:56"
+        },
+        {
+          "name": "RxRoute",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 10,
+          "values": "Actual route description from source system",
+          "definition": "Actual / administered route. Standard list of allowable values under development.",
+          "example": "IV"
+        },
+        {
+          "name": "RxDose",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 8,
+          "values": "Numeric digits with or without a decimal",
+          "definition": "Actual/administered dose. Intended to be analyzed in conjunction with the RxUOM (unit of measure) field and product strength data associated with the Drug Code (available from drug databases). Format captures maximum # of whole and decimal digits allowed by software technology for numeric data.",
+          "example": "100"
+        },
+        {
+          "name": "RxUOM",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 10,
+          "values": "Actual unit of measure from source system",
+          "definition": "Actual/administered unit of measure. Intended to be analyzed in conjunction with the RxDose field and product strength data associated with the Drug Code (available from drug databases). Standard list of allowable values under development.",
+          "example": "ML"
+        }
+      ]
+    },
+    {
+      "table_name": "Inpatient Transfusion Table",
+      "description": "The SCDM Inpatient Transfusion table contains data on inpatient blood transfusion administrations. It contains one record per unique combination of PatID and TransID. Each record represents a unique inpatient pharmacy transfusion administration, as defined by unique value combinations of PatID/ TransCode/ TransCode_Type/ TDate_Start/ Ttime_Start.",
+      "sort_order": ["PatID", "TDate_Start"],
+      "unique_row": ["TransID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, and Prescribing tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "The Encounter, Diagnosis, Procedure, Inpatient Transfusion, Inpatient Pharmacy, Vital Signs, Mother-Infant Linkage, and Prescribing tables are linked by PatID and EncounterID."
+          ]
+        },
+        {
+          "name": "TransID",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 15,
+          "values": "Unique transfusion administration row identifier",
+          "definition": "Retain because useful to map back to source data. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789012345"
+        },
+        {
+          "name": "TransCode",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Code value for an infusion product",
+          "definition": "Must be paired with the correct TransCode_Type",
+          "example": "123451224200599"
+        },
+        {
+          "name": "TransCode_Type",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "CD",
+              "description": "CODABAR"
+            },
+            {
+              "code": "IS",
+              "description": "ISBT"
+            }
+          ],
+          "definition": "Transfusion product code type. This variable combined with the TransCode variable should be used to capture any type of Inpatient Infusion product in the source data. Other code types will be added as new terminologies are used.",
+          "example": "CD"
+        },
+        {
+          "name": "Orig_TransProd",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Original product name/ mnemonic",
+          "definition": "Name of product within Data Partner. Site-specific length.",
+          "example": "Thawed POOLED PLATELETS"
+        },
+        {
+          "name": "BloodType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 3,
+          "values": [
+            {
+              "code": "AB (upper case) with Rh factor (+, -, or null only) or UN",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Blood type and Rh factors, without leading spaces. Convert any text Rh factor to symbols (e.g., \"pos\" to \"+\", \"negative\" to \"-\"). Rh factor can be blank.",
+          "example": "AB+"
+        },
+        {
+          "name": "TDate_Start",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date value",
+          "definition": "Administration start date.",
+          "example": "12/1/2015"
+        },
+        {
+          "name": "TTime_Start",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS time value HH:MM",
+          "definition": "Administration start time.",
+          "example": "14:27"
+        },
+        {
+          "name": "TDate_End",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date value",
+          "definition": "Administration end date.",
+          "example": "12/1/2015"
+        },
+        {
+          "name": "TTime_End",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS time value HH:MM",
+          "definition": "Administration end time.",
+          "example": "20:56"
+        },
+        {
+          "name": "EncType",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "ED",
+              "description": "Emergency Department"
+            },
+            {
+              "code": "IP",
+              "description": "Inpatient Hospital Stay"
+            },
+            {
+              "code": "IS",
+              "description": "Non-Acute Institutional Stay"
+            },
+            {
+              "code": "OA",
+              "description": "Other Ambulatory Visit"
+            }
+          ],
+          "definition": "Encounter Type",
+          "example": "IP"
+        }
+      ]
+    },
+    {
+      "table_name": "Mother-Infant Linkage Table",
+      "description": "The SCDM Mother-Infant Linkage Table contains one record per MPatID, CPatID, and ADate. This table is created following identification of mothers (via evidence of live birth delivery by individuals between 10 and 54 years of age as of the admission date of the delivery encounter and has an assigned value of Female in the Sentinel Common Data Model demographic table variable Sex) and infants (via date of birth) in the Sentinel Distributed Database (SDD).",
+      "sort_order": ["MPatID", "Adate", "CPatID"],
+      "unique_row": ["MPatID", "EncounterID", "CPatID"],
+      "variables": [
+        {
+          "name": "MPatID",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table. Must match mother PatID value in all other SCDM tables. Blank for infant-only records.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "MBirth_Date",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS Date",
+          "definition": "Mother Birth_Date value from SCDM Demographic table. Missing for infant-only records.",
+          "example": "12/5/1971"
+        },
+        {
+          "name": "Age",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Numeric",
+          "length": 3,
+          "values": "10-54 inclusive",
+          "definition": "Mother's age as of ADate. Missing for infant-only records.",
+          "example": "32"
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, Prescribing, and Patient-Reported Measures Response tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table. EncounterID value from SCDM Encounter table, for mother's delivery encounter. Missing for infant-only records.",
+          "example": "98765432159753",
+          "notes": [
+            "The Encounter, Diagnosis, Procedure, Inpatient Transfusion, Inpatient Pharmacy, Vital Signs, Mother-Infant Linkage, and Prescribing tables are linked by PatID and EncounterID."
+          ]
+        },
+        {
+          "name": "EncType",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "AV",
+              "description": "Ambulatory Visit"
+            },
+            {
+              "code": "ED",
+              "description": "Emergency Department"
+            },
+            {
+              "code": "IP",
+              "description": "Inpatient Hospital Stay"
+            },
+            {
+              "code": "IS",
+              "description": "Non-Acute Institutional Stay"
+            },
+            {
+              "code": "OA",
+              "description": "Other Ambulatory Visit"
+            }
+          ],
+          "definition": "EncType value from SCDM Encounter table, for mother's delivery encounter. Blank for infant-only records.",
+          "example": "IP",
+          "notes": [
+            "If more than 1 delivery encounter occur on the same ADate, then the EncType values are based on the encounter selected from the following hierarchy: IP > ED > AV > IS > OA."
+          ]
+        },
+        {
+          "name": "ADate",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS Date",
+          "definition": "ADate value from SCDM Encounter table, for mother's delivery encounter. Missing for infant-only records.",
+          "example": "12/24/2005"
+        },
+        {
+          "name": "DDate",
+          "missing_allowed": "Missing only allowed for Mother records",
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS Date; may be null",
+          "definition": "DDate value from SCDM Encounter table, for mother's delivery encounter. Missing for infant-only records.",
+          "example": "12/31/2005"
+        },
+        {
+          "name": "CPatID",
+          "missing_allowed": "Missing only allowed for Mother records",
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique member identifier.",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table. Must match infant PatID value in all other SCDM tables. Missing for mother/delivery only records.",
+          "example": "12341234"
+        },
+        {
+          "name": "CBirth_Date",
+          "missing_allowed": "Missing only allowed for Mother records",
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS Date",
+          "definition": "Infant Birth_Date value from SCDM Demographic table. Missing for mother/delivery-only records.",
+          "example": "1/2/2015"
+        },
+        {
+          "name": "Sex",
+          "missing_allowed": "Missing only allowed for Mother records",
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "A",
+              "description": "Ambiguous"
+            },
+            {
+              "code": "F",
+              "description": "Female"
+            },
+            {
+              "code": "M",
+              "description": "Male"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Infant Sex value from SCDM Demographic table. Blank for mother/ delivery-only records.",
+          "example": "F"
+        },
+        {
+          "name": "CEnr_Start",
+          "missing_allowed": "Missing only allowed for Mother records",
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS Date",
+          "definition": "Earliest Enr_Start from Enrollment table. Missing for mother/delivery-only records.",
+          "example": "1/1/2005"
+        },
+        {
+          "name": "Birth_Type",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Numeric",
+          "length": 3,
+          "values": [
+            {
+              "code": "0",
+              "description": "Unspecified # of live births"
+            },
+            {
+              "code": "1",
+              "description": "1 live birth"
+            },
+            {
+              "code": "2",
+              "description": "2 live births"
+            },
+            {
+              "code": "3",
+              "description": "3 live births"
+            },
+            {
+              "code": "4",
+              "description": "4 live births"
+            },
+            {
+              "code": "5",
+              "description": "5 live births"
+            },
+            {
+              "code": "8",
+              "description": "Multiple live births unspecified number"
+            },
+            {
+              "code": "9",
+              "description": "Conflicting code(s) for number of live births"
+            }
+          ],
+          "definition": "Based upon ICD-9-CM/ICD-10-CM codes in the health plan data for the delivery admission. Missing for infant-only records.",
+          "example": "3"
+        },
+        {
+          "name": "Birth_Type_Primes",
+          "missing_allowed": "Missing only allowed for Infant Records",
+          "type": "Numeric",
+          "length": 8,
+          "values": "2+",
+          "definition": "Multiplication of all prime numbers assigned to all instances of Birth_Type found in delivery codes within the selected encounter, as follows: Prime = Birth_Type: 2 = Birth_Type of 0, 3 = Birth_Type of 1, 5 = Birth_Type of 2, 7 = Birth_Type of 3, 11 = Birth_Type of 4, 13 = Birth_Type of 5, 17 = Birth_Type of 8, 19 = Birth_Type of 9. This provides a record of all values of Birth_Type for the selected encounter. Missing for infant-only records.",
+          "example": "5"
+        },
+        {
+          "name": "MatchMethod",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "BC",
+              "description": "Birth Certificate"
+            },
+            {
+              "code": "RE",
+              "description": "DP maintained birth registry"
+            },
+            {
+              "code": "SI",
+              "description": "health plan subscriber or family number"
+            },
+            {
+              "code": "LA",
+              "description": "exact or probabilistic last name and address match based upon health plan administrative data"
+            },
+            {
+              "code": "OT",
+              "description": "other"
+            },
+            {
+              "code": "N1",
+              "description": "No subscriber/ family IDs available for linkage"
+            },
+            {
+              "code": "N2",
+              "description": "No name/ address available for linkage"
+            },
+            {
+              "code": "N3",
+              "description": "Neither subscriber/ family IDs nor name/ address available for linkage"
+            },
+            {
+              "code": "NA",
+              "description": "no linkage made; any other reason"
+            }
+          ],
+          "definition": "Prioritized method of linkage for mother-infant match, or reason for unlinked record: For linked records, prioritize so that only one method is listed: RE > SI > LA > BC > OT, For cases where a mother/ delivery is not linked to an infant OR an infant is not linked to a mother/delivery, the value of this variable should be one of N1, N2, N3, or NA only.",
+          "example": "RE"
+        }
+      ]
+    },
+    {
+      "table_name": "Patient-Reported Measures Survey Table",
+      "description": "The SCDM Patient-Reported Measures (PRM) Survey Table contains information on the surveys and questions administered. As data in this table is site-specific, questions may not be consistent across sites. Surveys are included only if they have been administered at least one time.",
+      "sort_order": ["PRM_Code", "SurveyID", "QuestionID", "QuestionVerID"],
+      "unique_row": ["PRM_Code", "SurveyID", "QuestionID", "QuestionVerID"],
+      "variables": [
+        {
+          "name": "PRM_Code",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 3,
+          "values": "1-41",
+          "definition": "Unique integer identifier to a questionnaire type and subtype combination. Used to link across all PRM tables.",
+          "example": "13"
+        },
+        {
+          "name": "SurveyID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Site-specific",
+          "definition": "Unique identifier to a collection of questions administered as a single survey. Use the fewest number of bytes necessary to hold all distinct values; see Reference Tables SAS-Lengths tab.",
+          "example": "100001"
+        },
+        {
+          "name": "Survey_Name",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Site-specific",
+          "definition": "Survey name associated with a specific SurveyID. Multiple survey names may share the same SurveyID.",
+          "example": "DPXX_PHQ_PROJECT_ABC"
+        },
+        {
+          "name": "Survey_Data_Source",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "FL",
+              "description": "flowsheet"
+            },
+            {
+              "code": "LO",
+              "description": "local"
+            },
+            {
+              "code": "SF",
+              "description": "smart form"
+            },
+            {
+              "code": "QU",
+              "description": "questionnaire"
+            }
+          ],
+          "definition": "Data source of the survey. For site-specific surveys which do not fall into one of the 3 primary categories, set value to LO. Useful for mapping back to source data.",
+          "example": "FL"
+        },
+        {
+          "name": "QuestionID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Site-specific",
+          "definition": "Unique identifier for a question. A question may have multiple question versions; see variable QuestionVerID.",
+          "example": "1002"
+        },
+        {
+          "name": "QuestionVerID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Site-specific",
+          "definition": "Unique sequence number of available versions of each question. If an edit is made to a question, the next published version of the question will contain a different sequence number than the first published version. All versions of each question that have been administered are included in the data. This may include questions that were updated because of spelling/ grammatical errors as well as rewording to increase precision in earlier versions.",
+          "example": "1"
+        },
+        {
+          "name": "Question_Dt",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Each combination of QuestionID/ QuestionVerID has a unique date of publication.",
+          "example": "12/31/2015"
+        },
+        {
+          "name": "Question_Text",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Text",
+          "definition": "Source question text. If there is a response to the question in the data, the question is included.",
+          "example": "\"Over the last 2 weeks, how often have you been bothered by any of the following problems? Little interest or pleasure in doing things?\""
+        }
+      ]
+    },
+    {
+      "table_name": "Patient-Reported Measures Survey Response Table",
+      "description": "The Patient-Reported Measures (PRM) Response table contains all responses to surverys and questions listed in the PRM Survey table. This table does not contain a primary key due to occurrences of multiple surveys on the same date/time for a given person.",
+      "sort_order": ["PatID", "PRM_Code", "Response_Date", "Response_Time"],
+      "unique_row": null,
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, Prescribing, and Patient-Reported Measure Response tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "The Encounter, Diagnosis, Procedure, Inpatient Transfusion, Inpatient Pharmacy, Vital Signs, Mother-Infant Linkage, Prescribing, and Patient-Reported Measure Response tables are linked by PatID and EncounterID."
+          ]
+        },
+        {
+          "name": "PRM_Code",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 3,
+          "values": "1-41",
+          "definition": "Unique integer identifier to a questionnaire type and subtype combination. Used to link across all PRM tables.",
+          "example": "13"
+        },
+        {
+          "name": "SurveyID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique survey identifier",
+          "definition": "Unique identifier to a collection of questions administered as a single survey. Use the fewest number of bytes necessary to hold all distinct values; see Reference Tables SAS-Lengths tab.",
+          "example": "100001"
+        },
+        {
+          "name": "QuestionID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 3,
+          "values": "Unique question identifier",
+          "definition": "Unique identifier for a question. A question may have multiple question versions; see variable QuestionVerID.",
+          "example": "1001"
+        },
+        {
+          "name": "QuestionVerID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique question version identifier",
+          "definition": "Unique sequence number of available versions of each question. If an edit is made to a question, the next published version of the question will contain a different sequence number than the first published version. All versions of each question that have been administered are included in the data. This may include questions that were updated because of spelling/ grammatical errors as well as rewording to increase precision in earlier versions.",
+          "example": "1"
+        },
+        {
+          "name": "Response_Dt",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date value",
+          "definition": "Date associated with the entered response",
+          "example": "12/22/2019"
+        },
+        {
+          "name": "Response_Tm",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS time value",
+          "definition": "Time associated with the entered response",
+          "example": "18:35"
+        },
+        {
+          "name": "Response_Text",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Text",
+          "definition": "Source response text. Use the fewest number of bytes to contain all response values.",
+          "example": "Several days"
+        },
+        {
+          "name": "Survey_Mode",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "U",
+              "description": "Unknown"
+            },
+            {
+              "code": "1",
+              "description": "Telephone/ Video"
+            },
+            {
+              "code": "2",
+              "description": "Office/ Hospital Visit"
+            },
+            {
+              "code": "3",
+              "description": "Home Visit"
+            },
+            {
+              "code": "4",
+              "description": "Group Visit"
+            },
+            {
+              "code": "5",
+              "description": "Mail"
+            },
+            {
+              "code": "6",
+              "description": "Web/ Electronic"
+            },
+            {
+              "code": "7",
+              "description": "Other"
+            }
+          ],
+          "definition": "How the survey question was administered.",
+          "example": "2"
+        }
+      ]
+    },
+    {
+      "table_name": "Feature Engineering Table",
+      "description": "The SCDM Feature Engineering Table contains one record per derived feature.",
+      "sort_order": ["PatID"],
+      "unique_row": ["FeatureID"],
+      "variables": [
+        {
+          "name": "PatID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique patient identifier",
+          "definition": "Arbitrary person-level identifier. Used to link across tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "123456789",
+          "notes": [
+            "PatID is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For analytical data sets requiring patient-level data, only the pseudo-identifier is used to link across all information belonging to a patient."
+          ]
+        },
+        {
+          "name": "EncounterID",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique encounter identifier",
+          "definition": "Arbitrary encounter-level identifier. Used to link across the Encounter, Diagnosis, Procedure, Vital Signs, Mother-Infant Linkage, Inpatient Pharmacy, Inpatient Transfusion, Prescribing, and Patient-Reported Outcomes Response tables. Use the fewest number of bytes necessary to hold all distinct values; see \"SAS Lengths\" Reference Table.",
+          "example": "98765432159753",
+          "notes": [
+            "'EncounterID' is a pseudo-identifier with a consistent crosswalk to the true identifier retained by the source Data Partner. For features not linked to an explicit Sentinel encounter, the EncounterID may be left missing."
+          ]
+        },
+        {
+          "name": "FeatureID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique feature engineering results/row identifier",
+          "definition": "Identifier used to link the record to a FE metadata table locally maintained by the Data Partner storing information such as \"NLP Pipeline Name\", \"NLP Version\", \"Date NLP Run\", NLP Model validation metadata, and / or settings.",
+          "example": "54321"
+        },
+        {
+          "name": "Feature_dt",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date of the recorded feature. Where no date is assigned to the feature itself, this should be populated with the date the note was entered.",
+          "example": "12/24/2019"
+        },
+        {
+          "name": "Feature",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": "variable",
+          "values": "Feature Engineering code or Standard Term",
+          "definition": "Remove decimal points, site specific suffixes and prefixes. Other codes should be listed as recorded in the source data.",
+          "example": "P015"
+        },
+        {
+          "name": "FE_CodeType",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "SM",
+              "description": "SNOMED CT"
+            },
+            {
+              "code": "10",
+              "description": "ICD-10-CM"
+            },
+            {
+              "code": "11",
+              "description": "ICD-11-CM9"
+            },
+            {
+              "code": "MD",
+              "description": "MedDRA"
+            },
+            {
+              "code": "UC",
+              "description": "UMLS CUI"
+            }
+          ],
+          "definition": "Feature Engineering code type. This field combined with the FE field should be used to capture any type of diagnosis or clinical concept available in the source data. Other code types may be added as new terminologies are used.",
+          "example": "10"
+        },
+        {
+          "name": "ProviderID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Unique provider identifier",
+          "definition": "Identifier for the individual provider who made the diagnosis. As with the PatID, the ProviderID identifier is a pseudo-identifier with a consistent crosswalk to the real identifier. If an individual provider cannot be identified, populate the ProviderID value with special missing value of .U. This variable links to the Provider table.",
+          "example": "99218766"
+        },
+        {
+          "name": "Confidence",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "E",
+              "description": "Excellent"
+            },
+            {
+              "code": "F",
+              "description": "Fair"
+            },
+            {
+              "code": "P",
+              "description": "Poor"
+            },
+            {
+              "code": "N",
+              "description": "Not Assessed"
+            }
+          ],
+          "definition": "Confidence that the feature derived from source data is accurate. If uncertain, use N = Not-Assessed",
+          "example": "E"
+        },
+        {
+          "name": "Feature_Status",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "A",
+              "description": "Active"
+            },
+            {
+              "code": "H",
+              "description": "Historical"
+            },
+            {
+              "code": "N",
+              "description": "Negated"
+            },
+            {
+              "code": "X",
+              "description": "Non-patient (e.g. Family History)"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Indicators used to modify the derived feature based on context in the source note. Where the feature is present for the individual patient on the feature date and no negating criteria exist, status should = A. Where the feature is historically present for the individual patient, status should = H. Where the feature is ruled out, status should = N. Where the feature is not associated with the patient, status should = X.",
+          "example": "A"
+        }
+      ]
+    }
+  ]
+}
