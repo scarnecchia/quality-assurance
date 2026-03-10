@@ -16,15 +16,11 @@ dependencies = [
     "great-tables>=0.21,<1",
     "jinja2>=3,<4",
     "pyarrow>=23.0.1",
+    "duckdb>=1,<2",
 ]
 
 [project.scripts]
 scdm-qa = "scdm_qa.cli:app"
-
-[project.optional-dependencies]
-duckdb = [
-    "duckdb>=1,<2",
-]
 
 [dependency-groups]
 dev = [
