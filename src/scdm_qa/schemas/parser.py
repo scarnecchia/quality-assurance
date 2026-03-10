@@ -31,7 +31,7 @@ _TABLE_NAME_TO_KEY: dict[str, str] = {
 }
 
 _CONDITIONAL_PATTERN = re.compile(
-    r"conditional on (\w+) value.*?(?:If \1\s*=\s*(.+?)(?:,|$))?",
+    r"conditional on (\w+) value\.?\s+If \1\s*=\s*(.+?)(?:,|$)",
     re.IGNORECASE,
 )
 
