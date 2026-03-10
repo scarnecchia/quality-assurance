@@ -59,6 +59,11 @@ def load_config(config_path: Path) -> QAConfig:
     run_l1 = options.get("run_l1", True)
     run_l2 = options.get("run_l2", True)
 
+    if not isinstance(run_l1, bool):
+        raise ConfigError(f"run_l1 must be a boolean, got: {run_l1}")
+    if not isinstance(run_l2, bool):
+        raise ConfigError(f"run_l2 must be a boolean, got: {run_l2}")
+
     if not isinstance(chunk_size, int) or chunk_size <= 0:
         raise ConfigError(f"chunk_size must be a positive integer, got: {chunk_size}")
 

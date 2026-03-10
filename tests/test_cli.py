@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import polars as pl
 from typer.testing import CliRunner
@@ -37,8 +38,16 @@ class TestSchemaCommand:
 class TestRunCommandL1L2Flags:
     """Tests for --l1-only and --l2-only CLI flags."""
 
-    def _make_minimal_config(self, tmp_path: Path) -> Path:
-        """Helper to create minimal test data and config."""
+    def _make_minimal_config(self, tmp_path: Path, *, extra_options: str = "") -> Path:
+        """Helper to create minimal test data and config.
+
+        Args:
+            tmp_path: Temporary directory from pytest
+            extra_options: Additional TOML options to append to [options] section
+
+        Returns:
+            Path to the generated config file
+        """
         data_dir = tmp_path / "data"
         data_dir.mkdir()
 
@@ -55,10 +64,13 @@ class TestRunCommandL1L2Flags:
 
         output_dir = tmp_path / "reports"
         config_file = tmp_path / "config.toml"
-        config_file.write_text(
+        base_options = f'[options]\noutput_dir = "{output_dir}"\n'
+        config_text = (
             f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
-            f'[options]\noutput_dir = "{output_dir}"\n'
+            f'{base_options}'
+            f'{extra_options}'
         )
+        config_file.write_text(config_text)
         return config_file
 
     def test_l1_only_flag_succeeds(self, tmp_path: Path) -> None:
@@ -84,57 +96,48 @@ class TestRunCommandL1L2Flags:
 
     def test_l1_only_overrides_toml_run_l2_true(self, tmp_path: Path) -> None:
         """--l1-only should override TOML config run_l1/run_l2 values."""
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-
-        df = pl.DataFrame({
-            "PatID": ["P1", "P2"],
-            "Birth_Date": [1000, 2000],
-            "Sex": ["F", "M"],
-            "Hispanic": ["Y", "N"],
-            "Race": ["1", "2"],
-            "ImputedHispanic": ["Y", "N"],
-            "ImputedRace": ["1", "2"],
-        })
-        df.write_parquet(data_dir / "demographic.parquet")
-
-        output_dir = tmp_path / "reports"
-        config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
-            f'[options]\noutput_dir = "{output_dir}"\nrun_l1 = true\nrun_l2 = true\n'
+        config_file = self._make_minimal_config(
+            tmp_path, extra_options="run_l1 = true\nrun_l2 = true\n"
         )
 
-        # Without a way to directly inspect config passed to run_pipeline,
-        # we can at least verify the command succeeds without error
-        result = runner.invoke(app, ["run", str(config_file), "--l1-only"])
+        with patch("scdm_qa.cli.run_pipeline", return_value=[]) as mock_pipeline:
+            result = runner.invoke(app, ["run", str(config_file), "--l1-only"])
+
         assert result.exit_code == 0
+        assert mock_pipeline.called
+        cfg = mock_pipeline.call_args[0][0]
+        assert cfg.run_l1 is True
+        assert cfg.run_l2 is False
 
     def test_l2_only_overrides_toml_config(self, tmp_path: Path) -> None:
         """--l2-only should override TOML config run_l1/run_l2 values."""
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-
-        df = pl.DataFrame({
-            "PatID": ["P1", "P2"],
-            "Birth_Date": [1000, 2000],
-            "Sex": ["F", "M"],
-            "Hispanic": ["Y", "N"],
-            "Race": ["1", "2"],
-            "ImputedHispanic": ["Y", "N"],
-            "ImputedRace": ["1", "2"],
-        })
-        df.write_parquet(data_dir / "demographic.parquet")
-
-        output_dir = tmp_path / "reports"
-        config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
-            f'[options]\noutput_dir = "{output_dir}"\nrun_l1 = true\nrun_l2 = true\n'
+        config_file = self._make_minimal_config(
+            tmp_path, extra_options="run_l1 = true\nrun_l2 = true\n"
         )
 
-        result = runner.invoke(app, ["run", str(config_file), "--l2-only"])
+        with patch("scdm_qa.cli.run_pipeline", return_value=[]) as mock_pipeline:
+            result = runner.invoke(app, ["run", str(config_file), "--l2-only"])
+
         assert result.exit_code == 0
+        assert mock_pipeline.called
+        cfg = mock_pipeline.call_args[0][0]
+        assert cfg.run_l1 is False
+        assert cfg.run_l2 is True
+
+    def test_no_flags_preserves_toml_config(self, tmp_path: Path) -> None:
+        """No CLI flags should preserve TOML config run_l1/run_l2 values."""
+        config_file = self._make_minimal_config(
+            tmp_path, extra_options="run_l1 = false\nrun_l2 = true\n"
+        )
+
+        with patch("scdm_qa.cli.run_pipeline", return_value=[]) as mock_pipeline:
+            result = runner.invoke(app, ["run", str(config_file)])
+
+        assert result.exit_code == 0
+        assert mock_pipeline.called
+        cfg = mock_pipeline.call_args[0][0]
+        assert cfg.run_l1 is False
+        assert cfg.run_l2 is True
 
 
 class TestRunCommand:
