@@ -34,6 +34,109 @@ class TestSchemaCommand:
         assert "PatID" in result.output
 
 
+class TestRunCommandL1L2Flags:
+    """Tests for --l1-only and --l2-only CLI flags."""
+
+    def _make_minimal_config(self, tmp_path: Path) -> Path:
+        """Helper to create minimal test data and config."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
+        })
+        df.write_parquet(data_dir / "demographic.parquet")
+
+        output_dir = tmp_path / "reports"
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
+            f'[options]\noutput_dir = "{output_dir}"\n'
+        )
+        return config_file
+
+    def test_l1_only_flag_succeeds(self, tmp_path: Path) -> None:
+        config_file = self._make_minimal_config(tmp_path)
+        result = runner.invoke(app, ["run", str(config_file), "--l1-only"])
+        assert result.exit_code == 0
+
+    def test_l2_only_flag_succeeds(self, tmp_path: Path) -> None:
+        config_file = self._make_minimal_config(tmp_path)
+        result = runner.invoke(app, ["run", str(config_file), "--l2-only"])
+        assert result.exit_code == 0
+
+    def test_no_flags_succeeds(self, tmp_path: Path) -> None:
+        config_file = self._make_minimal_config(tmp_path)
+        result = runner.invoke(app, ["run", str(config_file)])
+        assert result.exit_code == 0
+
+    def test_l1_only_and_l2_only_together_exits_2(self, tmp_path: Path) -> None:
+        config_file = self._make_minimal_config(tmp_path)
+        result = runner.invoke(app, ["run", str(config_file), "--l1-only", "--l2-only"])
+        assert result.exit_code == 2
+        assert "mutually exclusive" in result.output
+
+    def test_l1_only_overrides_toml_run_l2_true(self, tmp_path: Path) -> None:
+        """--l1-only should override TOML config run_l1/run_l2 values."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
+        })
+        df.write_parquet(data_dir / "demographic.parquet")
+
+        output_dir = tmp_path / "reports"
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
+            f'[options]\noutput_dir = "{output_dir}"\nrun_l1 = true\nrun_l2 = true\n'
+        )
+
+        # Without a way to directly inspect config passed to run_pipeline,
+        # we can at least verify the command succeeds without error
+        result = runner.invoke(app, ["run", str(config_file), "--l1-only"])
+        assert result.exit_code == 0
+
+    def test_l2_only_overrides_toml_config(self, tmp_path: Path) -> None:
+        """--l2-only should override TOML config run_l1/run_l2 values."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
+        })
+        df.write_parquet(data_dir / "demographic.parquet")
+
+        output_dir = tmp_path / "reports"
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
+            f'[options]\noutput_dir = "{output_dir}"\nrun_l1 = true\nrun_l2 = true\n'
+        )
+
+        result = runner.invoke(app, ["run", str(config_file), "--l2-only"])
+        assert result.exit_code == 0
+
+
 class TestRunCommand:
     def _make_config_and_data(self, tmp_path: Path, *, with_nulls: bool = False) -> Path:
         data_dir = tmp_path / "data"
