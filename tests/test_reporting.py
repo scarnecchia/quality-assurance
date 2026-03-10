@@ -168,3 +168,52 @@ class TestSaveIndex:
         assert "encounter.html" in html
         assert "PASS" in html
         assert "FAIL" in html
+
+
+class TestSaveTableReport__EmptyProfiling:
+    def test_handles_empty_profiling_columns(self, tmp_path: Path) -> None:
+        """Verify that save_table_report handles empty profiling columns gracefully."""
+        vr = ValidationResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            steps=(
+                StepResult(
+                    step_index=-1,
+                    assertion_type="cross_table",
+                    column="PatID",
+                    description="Cross-table check",
+                    n_passed=10,
+                    n_failed=0,
+                    failing_rows=None,
+                    check_id="201",
+                    severity="Fail",
+                ),
+            ),
+            total_rows=0,
+            chunks_processed=0,
+        )
+        # Empty profiling result (cross-table has no columns)
+        pr = ProfilingResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            total_rows=0,
+            columns=(),
+        )
+        path = save_table_report(tmp_path, "cross_table", vr, pr)
+        assert path.exists()
+        html = path.read_text()
+        # Validation section should be present
+        assert "Validation" in html
+        assert "Cross-Table Checks" in html
+        # Profiling section should not be present
+        assert "<h2>Data Profile</h2>" not in html
+
+    def test_profiling_section_present_when_columns_exist(self, tmp_path: Path) -> None:
+        """Verify that profiling section is included when columns are present."""
+        vr = _make_validation_result()
+        pr = _make_profiling_result()
+        path = save_table_report(tmp_path, "demographic", vr, pr)
+        html = path.read_text()
+        # Both sections should be present
+        assert "Validation" in html
+        assert "<h2>Data Profile</h2>" in html

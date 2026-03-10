@@ -581,3 +581,127 @@ class TestExitCodeWithCrossTableResults:
 
         exit_code = compute_exit_code(outcomes)
         assert exit_code == 0
+
+
+class TestCrossTableReporting:
+    """Tests for cross-table report generation and index entry (AC1.9)."""
+
+    def _make_minimal_config(self, tmp_path: Path) -> QAConfig:
+        """Create a minimal QAConfig for testing."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        # Create a minimal demographic parquet file
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
+        })
+        df.write_parquet(data_dir / "demographic.parquet")
+
+        output_dir = tmp_path / "reports"
+        output_dir.mkdir()
+
+        return QAConfig(
+            tables={"demographic": data_dir / "demographic.parquet"},
+            output_dir=output_dir,
+            run_l1=False,
+            run_l2=True,
+        )
+
+    def test_cross_table_report_file_created(self, tmp_path: Path) -> None:
+        """AC1.9: Cross-table outcome generates cross_table.html file."""
+        config = self._make_minimal_config(tmp_path)
+
+        with patch("scdm_qa.pipeline._process_table") as mock_process, \
+             patch("scdm_qa.validation.cross_table.run_cross_table_checks") as mock_cross:
+            # Mock a single cross-table step
+            mock_cross.return_value = [
+                StepResult(
+                    step_index=-1,
+                    assertion_type="cross_table",
+                    column="PatID",
+                    description="Test cross-table check",
+                    n_passed=10,
+                    n_failed=0,
+                    failing_rows=None,
+                    check_id="201",
+                    severity="Fail",
+                )
+            ]
+
+            outcomes = run_pipeline(config)
+
+            # Verify cross_table.html was created
+            report_path = config.output_dir / "cross_table.html"
+            assert report_path.exists(), f"Report file {report_path} should exist"
+
+            # Verify the HTML contains validation section
+            html = report_path.read_text()
+            assert "Cross-Table Checks" in html
+            assert "Validation" in html
+
+    def test_cross_table_entry_in_index(self, tmp_path: Path) -> None:
+        """AC1.9: Cross-table outcome creates index.html entry."""
+        config = self._make_minimal_config(tmp_path)
+
+        with patch("scdm_qa.pipeline._process_table") as mock_process, \
+             patch("scdm_qa.validation.cross_table.run_cross_table_checks") as mock_cross:
+            mock_cross.return_value = [
+                StepResult(
+                    step_index=-1,
+                    assertion_type="cross_table",
+                    column="PatID",
+                    description="Test cross-table check",
+                    n_passed=10,
+                    n_failed=1,
+                    failing_rows=None,
+                    check_id="201",
+                    severity="Fail",
+                )
+            ]
+
+            outcomes = run_pipeline(config)
+
+            # Verify index.html was created
+            index_path = config.output_dir / "index.html"
+            assert index_path.exists(), f"Index file {index_path} should exist"
+
+            # Verify the index contains cross-table entry
+            html = index_path.read_text()
+            assert "Cross-Table Checks" in html
+            assert "cross_table.html" in html
+            assert "1" in html  # total_failures count
+
+    def test_cross_table_no_profiling_section(self, tmp_path: Path) -> None:
+        """AC1.9: Cross-table report should not contain profiling section."""
+        config = self._make_minimal_config(tmp_path)
+
+        with patch("scdm_qa.pipeline._process_table") as mock_process, \
+             patch("scdm_qa.validation.cross_table.run_cross_table_checks") as mock_cross:
+            mock_cross.return_value = [
+                StepResult(
+                    step_index=-1,
+                    assertion_type="cross_table",
+                    column="PatID",
+                    description="Test cross-table check",
+                    n_passed=10,
+                    n_failed=0,
+                    failing_rows=None,
+                    check_id="201",
+                    severity="Fail",
+                )
+            ]
+
+            outcomes = run_pipeline(config)
+
+            # Verify cross_table.html does not contain profiling
+            report_path = config.output_dir / "cross_table.html"
+            html = report_path.read_text()
+
+            # Should not have a Profile section
+            assert "<h2>Data Profile</h2>" not in html
