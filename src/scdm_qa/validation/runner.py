@@ -90,13 +90,12 @@ def run_validation(
             extracts=extracts,
         )
 
-    if accumulator._chunks_processed == 0:
+    final = accumulator.result()
+    if final.chunks_processed == 0:
         log.warning(
             "validation found no chunks to process",
             table=schema.table_key,
         )
-
-    final = accumulator.result()
     log.info(
         "validation complete",
         table=schema.table_key,
