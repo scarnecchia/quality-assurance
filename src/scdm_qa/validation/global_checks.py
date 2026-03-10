@@ -295,7 +295,6 @@ def check_date_ordering(
     pair_passed: dict[str, int] = {}
     pair_failing_rows: dict[str, list[pl.DataFrame]] = {}
     pair_failing_count: dict[str, int] = {}
-    total_rows = 0
 
     for pair_def in ordering_defs:
         key = f"{pair_def.date_a}>{pair_def.date_b}"
@@ -305,7 +304,6 @@ def check_date_ordering(
         pair_failing_count[key] = 0
 
     for chunk in chunks:
-        total_rows += chunk.height
         for pair_def in ordering_defs:
             if pair_def.date_a not in chunk.columns or pair_def.date_b not in chunk.columns:
                 continue

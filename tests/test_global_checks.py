@@ -531,7 +531,7 @@ class TestDateOrdering:
             assert result.severity == check_def.severity
             assert result.severity == "Fail"  # From registry
 
-    def test_both_date_pairs_for_encounter(self) -> None:
+    def test_date_pair_count_for_encounter(self) -> None:
         """Test that encounter table has one date ordering pair."""
         schema = get_schema("encounter")
         chunks = iter([
@@ -553,7 +553,7 @@ class TestDateOrdering:
         assert len(results) == 1
         assert results[0].column == "ADate, DDate"
 
-    def test_both_date_pairs_for_enrollment(self) -> None:
+    def test_date_pair_count_for_enrollment(self) -> None:
         """Test that enrollment table has one date ordering pair."""
         schema = get_schema("enrollment")
         chunks = iter([
