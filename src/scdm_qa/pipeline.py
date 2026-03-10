@@ -142,10 +142,29 @@ def run_pipeline(
                         success=True,
                         validation_result=cross_table_vr,
                     ))
-                    # NOTE: Cross-table reporting (HTML report page + index entry) is
-                    # NOT wired here. The cross_table outcome has no profiling_result,
-                    # so the existing save_table_report() guard will skip it.
-                    # Phase 7 adds the reporting integration for cross-table results.
+
+                    # Generate report for cross-table results
+                    empty_profiling = ProfilingResult(
+                        table_key="cross_table",
+                        table_name="Cross-Table Checks",
+                        total_rows=0,
+                        columns=(),
+                    )
+                    save_table_report(
+                        config.output_dir,
+                        "cross_table",
+                        cross_table_vr,
+                        empty_profiling,
+                    )
+                    report_summaries.append(
+                        make_report_summary(
+                            "cross_table",
+                            "Cross-Table Checks",
+                            0,
+                            len(cross_table_steps),
+                            sum(s.n_failed for s in cross_table_steps),
+                        )
+                    )
 
         except Exception as exc:
             log.error("cross-table validation failed", error=str(exc))
