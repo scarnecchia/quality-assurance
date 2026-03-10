@@ -34,7 +34,7 @@ def run_validation(
         max_failing_rows=max_failing_rows,
     )
 
-    step_descriptions: list[tuple[int, str, str, str]] = []
+    step_descriptions: list[tuple[int, str, str, str, str | None, str | None]] = []
 
     for chunk_num, chunk in enumerate(reader.chunks(), start=1):
         if profiling_accumulator is not None:
@@ -110,13 +110,13 @@ def run_validation(
 def _build_step_descriptions(
     schema: TableSchema,
     present_columns: set[str],
-) -> list[tuple[int, str, str, str]]:
+) -> list[tuple[int, str, str, str, str | None, str | None]]:
     """Build step descriptions matching the order of steps in build_validation().
 
-    Returns list of (step_index, assertion_type, column, description).
+    Returns list of (step_index, assertion_type, column, description, check_id, severity).
     Step indices are 1-based to match pointblank's convention.
     """
-    descriptions: list[tuple[int, str, str, str]] = []
+    descriptions: list[tuple[int, str, str, str, str | None, str | None]] = []
     step_idx = 0
 
     for col in schema.columns:
@@ -124,13 +124,13 @@ def _build_step_descriptions(
             continue
         if not col.missing_allowed:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_not_null", col.name, f"{col.name} not null"))
+            descriptions.append((step_idx, "col_vals_not_null", col.name, f"{col.name} not null", None, None))
         if col.allowed_values is not None:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_in_set", col.name, f"{col.name} in allowed values"))
+            descriptions.append((step_idx, "col_vals_in_set", col.name, f"{col.name} in allowed values", None, None))
         if col.col_type == "Character" and col.length is not None:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_regex", col.name, f"{col.name} length <= {col.length}"))
+            descriptions.append((step_idx, "col_vals_regex", col.name, f"{col.name} length <= {col.length}", None, None))
 
     for rule in schema.conditional_rules:
         if rule.target_column not in present_columns:
@@ -145,6 +145,8 @@ def _build_step_descriptions(
             "col_vals_not_null (conditional)",
             rule.target_column,
             f"{rule.target_column} not null when {rule.condition_column} in {sorted(rule.condition_values)}",
+            None,
+            None,
         ))
 
     return descriptions
