@@ -114,7 +114,7 @@ def save_table_report(
     report_path = output_dir / f"{table_key}.html"
 
     validation_gt = build_validation_table(validation_result)
-    profiling_gt = build_profiling_table(profiling_result)
+    profiling_gt = build_profiling_table(profiling_result) if profiling_result.columns else None
     failing_tables = build_failing_rows_table(validation_result)
 
     csv_download_js = """
@@ -152,9 +152,13 @@ def save_table_report(
         f"<h1>SCDM-QA Report: {validation_result.table_name}</h1>",
         "<h2>Validation Summary</h2>",
         validation_gt.as_raw_html(inline_css=False),
-        "<h2>Data Profile</h2>",
-        profiling_gt.as_raw_html(inline_css=False),
     ]
+
+    if profiling_gt:
+        parts.extend([
+            "<h2>Data Profile</h2>",
+            profiling_gt.as_raw_html(inline_css=False),
+        ])
 
     if failing_tables:
         parts.append("<h2>Failing Row Extracts</h2>")
