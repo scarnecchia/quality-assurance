@@ -7,7 +7,7 @@ Last verified: 2026-03-09
 - CLI: Typer
 - Data: Polars (DataFrames), pointblank (validation rules)
 - Formats: Parquet (pyarrow), SAS7BDAT (pyreadstat)
-- Reporting: Jinja2, great-tables, css-inline
+- Reporting: Jinja2, great-tables
 - Logging: structlog
 - Build: uv (uv_build backend)
 - Testing: pytest
