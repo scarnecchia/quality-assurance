@@ -50,6 +50,21 @@ class TestColumnParsing:
         enctype = enc.get_column("EncType")
         assert enctype is not None
         assert enctype.col_type == "Character"
+        assert enctype.length is not None
+        assert isinstance(enctype.length, int)
+
+    def test_variable_length_column_has_none_length(self) -> None:
+        tables = parse_spec()
+        for table in tables:
+            for col in table.columns:
+                if col.col_type == "Character":
+                    # Some Character columns have fixed length, some are variable
+                    # If it's variable-length, length should be None
+                    if col.length is None:
+                        # Found a variable-length column
+                        return
+        # If we get here, we should have at least one variable-length character column
+        pytest.fail("no variable-length character column found for testing")
 
 
 class TestConditionalRules:
@@ -65,7 +80,7 @@ class TestConditionalRules:
         assert len(ddate_rules) == 1
         rule = ddate_rules[0]
         assert rule.condition_column == "EncType"
-        assert "IP" in rule.condition_values or "IS" in rule.condition_values
+        assert rule.condition_values >= {"IP", "IS"}
 
 
 class TestUniqueRowAndSortOrder:

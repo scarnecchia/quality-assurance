@@ -94,9 +94,8 @@ class TestBuildValidationConditionalRules:
         v = build_validation(df, schema).interrogate()
         fail_fractions = v.f_failed()
         # The conditional rule should not fail for AV since it's not in the trigger set
-        # Other steps may fail for other reasons, but verify conditional rule doesn't fire
-        conditional_failed = list(fail_fractions.values())
-        # If all steps pass, all fractions should be 0
-        # If some fail, it's acceptable as long as not the conditional rule
-        # For AV, the conditional rule step should not be triggered
-        assert conditional_failed is not None  # just verify we can check the result
+        # When the conditional precondition filters to an empty DataFrame, the step
+        # has a None fail_fraction (zero rows matched condition = zero failures)
+        # Verify that the conditional rule step (the last step) is None or 0
+        conditional_rule_fraction = list(fail_fractions.values())[-1]
+        assert conditional_rule_fraction is None or conditional_rule_fraction == 0.0

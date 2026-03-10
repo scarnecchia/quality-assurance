@@ -35,7 +35,15 @@ def load_custom_rules(
         return None
 
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        log.warning(
+            "failed to load custom rules module due to error",
+            file=str(rules_file),
+            error=str(e),
+        )
+        return None
 
     extend_fn = getattr(module, "extend_validation", None)
     if extend_fn is None:
@@ -55,4 +63,11 @@ def apply_custom_rules(
 ) -> pb.Validate:
     if extend_fn is None:
         return validation
-    return extend_fn(validation, data)
+    try:
+        return extend_fn(validation, data)
+    except Exception as e:
+        log.warning(
+            "failed to apply custom rules due to error",
+            error=str(e),
+        )
+        return validation

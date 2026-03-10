@@ -4,7 +4,11 @@ import json
 import re
 from pathlib import Path
 
+import structlog
+
 from scdm_qa.schemas.models import ColumnDef, ConditionalRule, TableSchema
+
+log = structlog.get_logger(__name__)
 
 _SPEC_PATH = Path(__file__).parent / "tables_documentation.json"
 
@@ -104,8 +108,7 @@ def _parse_missing_allowed(value: bool | str) -> bool:
     lower = value.lower()
     if "conditional" in lower or "special missing" in lower:
         return True
-    import structlog
-    structlog.get_logger(__name__).warning(
+    log.warning(
         "unrecognised missing_allowed string, treating as nullable",
         value=value,
     )
