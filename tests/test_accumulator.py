@@ -84,6 +84,7 @@ class TestAccumulatorPropagatesCheckId:
         )
         result = acc.result()
         assert result.steps[0].check_id is None
+        assert result.steps[0].severity is None
 
     def test_check_id_preserved_when_set(self) -> None:
         acc = ValidationAccumulator("test", "Test Table")
@@ -96,3 +97,4 @@ class TestAccumulatorPropagatesCheckId:
         )
         result = acc.result()
         assert result.steps[0].check_id == "122"
+        assert result.steps[0].severity == "Warn"

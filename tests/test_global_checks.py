@@ -126,6 +126,7 @@ class TestGlobalCheckCheckIdNone:
         result = check_uniqueness(Path("dummy.sas7bdat"), schema, chunks=chunks)
         assert result is not None
         assert result.check_id is None
+        assert result.severity is None
 
     def test_sort_order_check_has_check_id_none(self) -> None:
         schema = get_schema("demographic")
@@ -136,3 +137,4 @@ class TestGlobalCheckCheckIdNone:
         result = check_sort_order(schema, chunks)
         assert result is not None
         assert result.check_id is None
+        assert result.severity is None
