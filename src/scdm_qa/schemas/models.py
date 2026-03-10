@@ -42,6 +42,39 @@ class DateOrderingDef:
 
 
 @dataclass(frozen=True)
+class FormatCheckDef:
+    check_id: str  # "223"
+    table_key: str  # e.g. "diagnosis"
+    column: str  # target column, e.g. "DX"
+    codetype_column: str  # e.g. "DX_CodeType"
+    codetype_value: str  # e.g. "09" for ICD-9
+    check_subtype: str  # "no_decimal" | "regex" | "era_date" | "conditional_presence"
+    severity: str  # "Fail" | "Warn" | "Note"
+    pattern: str | None  # regex pattern for "regex" subtype, None otherwise
+    description: str
+    # era_date subtype fields (None for other subtypes)
+    date_column: str | None = None  # e.g. "ADate" — the date column to compare against era boundary
+    era_boundary: str | None = None  # e.g. "2015-10-01" — the ICD-9/ICD-10 transition date
+    # conditional_presence subtype fields (None for other subtypes)
+    condition_column: str | None = None  # e.g. "EncType" — column whose value drives the rule
+    condition_values: tuple[str, ...] | None = None  # e.g. ("IP", "IS") — values that trigger the rule
+    expect_null: bool = False  # if True, target column should be null; if False, should not be null
+
+
+@dataclass(frozen=True)
+class LengthCheckDef:
+    check_id: str  # "228"
+    table_key: str  # e.g. "diagnosis"
+    column: str  # target column, e.g. "DX"
+    codetype_column: str  # e.g. "DX_CodeType"
+    codetype_value: str  # e.g. "09" for ICD-9
+    min_length: int
+    max_length: int
+    severity: str  # "Warn"
+    description: str
+
+
+@dataclass(frozen=True)
 class TableSchema:
     table_name: str
     table_key: str  # normalised key, e.g. "enrollment"
