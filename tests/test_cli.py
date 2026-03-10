@@ -164,7 +164,7 @@ class TestRunCommand:
         config_file = tmp_path / "config.toml"
         config_file.write_text(
             f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
-            f'[options]\noutput_dir = "{output_dir}"\nchunk_size = 2\n'
+            f'[options]\noutput_dir = "{output_dir}"\nchunk_size = 2\nrun_l2 = false\n'
         )
         return config_file
 
