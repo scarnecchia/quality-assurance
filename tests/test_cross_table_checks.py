@@ -215,7 +215,14 @@ class TestCrossTableChecksParser:
         date_checks = [c for c in checks if c.check_type == "cross_date_compare"]
         assert len(date_checks) > 0
         check_ids = {c.check_id for c in date_checks}
-        assert "205" in check_ids or "206" in check_ids or "227" in check_ids
+        assert {"205", "206", "227"} <= check_ids
+
+    def test_length_excess_checks_present(self):
+        """Check 209 length_excess checks are present."""
+        checks = get_cross_table_checks()
+        excess_checks = [c for c in checks if c.check_type == "length_excess"]
+        assert len(excess_checks) > 0
+        assert all(c.check_id == "209" for c in excess_checks)
 
     def test_column_mismatch_check_present(self):
         """Check 224 column_mismatch check is present."""

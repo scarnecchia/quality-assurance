@@ -92,6 +92,10 @@ def load_cross_table_checks() -> tuple[CrossTableCheckDef, ...]:
         if missing:
             raise ConfigError(f"checks[{i}] missing required fields: {missing}")
 
+        null_fields = {f for f in required_fields if check_dict.get(f) is None}
+        if null_fields:
+            raise ConfigError(f"checks[{i}] has null values for required fields: {null_fields}")
+
         # Convert table_group from list to tuple if present
         table_group = check_dict.get("table_group")
         if table_group is not None and isinstance(table_group, list):
