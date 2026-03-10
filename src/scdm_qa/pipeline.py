@@ -8,9 +8,9 @@ import structlog
 from scdm_qa.config import QAConfig
 from scdm_qa.profiling.accumulator import ProfilingAccumulator
 from scdm_qa.profiling.results import ProfilingResult
-from scdm_qa.readers import UnsupportedFormatError, create_reader
+from scdm_qa.readers import create_reader
 from scdm_qa.reporting.builder import save_table_report
-from scdm_qa.reporting.index import make_report_summary, save_index
+from scdm_qa.reporting.index import ReportSummary, make_report_summary, save_index
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.custom_rules import load_custom_rules
 from scdm_qa.validation.global_checks import check_sort_order, check_uniqueness
@@ -43,7 +43,7 @@ def run_pipeline(
         tables = {table_filter: tables[table_filter]}
 
     outcomes: list[TableOutcome] = []
-    report_summaries: list[dict] = []
+    report_summaries: list[ReportSummary] = []
 
     for table_key, file_path in tables.items():
         log.info("processing table", table=table_key, file=str(file_path))

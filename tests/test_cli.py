@@ -75,6 +75,68 @@ class TestRunCommand:
         result = runner.invoke(app, ["run", str(tmp_path / "missing.toml")])
         assert result.exit_code == 2
 
+    def test_exit_code_1_when_failures_within_threshold(self, tmp_path: Path) -> None:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        # Create data with 1 null out of 100 rows = 1% failure rate < 5% threshold
+        patids = ["P" + str(i) for i in range(1, 100)]
+        patids.append(None)
+
+        df = pl.DataFrame({
+            "PatID": patids,
+            "Birth_Date": list(range(1000, 1100)),
+            "Sex": ["F" if i % 2 == 0 else "M" for i in range(100)],
+            "Hispanic": ["Y" if i % 2 == 0 else "N" for i in range(100)],
+            "Race": [str((i % 3) + 1) for i in range(100)],
+        })
+        df.write_parquet(data_dir / "demographic.parquet")
+
+        output_dir = tmp_path / "reports"
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            f'[tables]\ndemographic = "{data_dir / "demographic.parquet"}"\n\n'
+            f'[options]\noutput_dir = "{output_dir}"\nchunk_size = 10\n'
+        )
+        result = runner.invoke(app, ["run", str(config_file)])
+        # 1 null out of 100 = 1% failure rate < 5% threshold → exit 1
+        assert result.exit_code == 1
+
+
+class TestRunCommandTableFilter:
+    def test_table_filter_option(self, tmp_path: Path) -> None:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        # Create two tables
+        pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+        }).write_parquet(data_dir / "demographic.parquet")
+
+        pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "EnrollmentID": ["E1", "E2"],
+            "Enrollment_Date": [1000, 2000],
+        }).write_parquet(data_dir / "enrollment.parquet")
+
+        output_dir = tmp_path / "reports"
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            f'[tables]\n'
+            f'demographic = "{data_dir / "demographic.parquet"}"\n'
+            f'enrollment = "{data_dir / "enrollment.parquet"}"\n\n'
+            f'[options]\noutput_dir = "{output_dir}"\n'
+        )
+        result = runner.invoke(app, ["run", str(config_file), "--table", "demographic"])
+        assert result.exit_code == 0
+        # Only demographic report should be created, not enrollment
+        assert (tmp_path / "reports" / "demographic.html").exists()
+        assert not (tmp_path / "reports" / "enrollment.html").exists()
+
 
 class TestRunCommandTableIsolation:
     def test_one_table_failure_doesnt_block_others(self, tmp_path: Path) -> None:
@@ -101,6 +163,8 @@ class TestRunCommandTableIsolation:
         )
         result = runner.invoke(app, ["run", str(config_file)])
         # Should still create demographic report even though enrollment fails
+        assert result.exit_code == 2
+        assert "ERROR" in result.output
         assert (tmp_path / "reports" / "demographic.html").exists()
 
 

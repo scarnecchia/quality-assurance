@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import functools
 import http.server
-import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -108,10 +108,7 @@ def serve(
         typer.echo(f"error: report directory not found: {report_dir}", err=True)
         raise typer.Exit(code=2)
 
-    import os
-    os.chdir(report_dir)
-
-    handler = http.server.SimpleHTTPRequestHandler
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(report_dir))
     server = http.server.HTTPServer(("", port), handler)
 
     url = f"http://localhost:{port}/"
