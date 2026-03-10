@@ -14,7 +14,7 @@ from scdm_qa.reporting.index import ReportSummary, make_report_summary, save_ind
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.checks import get_not_populated_checks_for_table
 from scdm_qa.schemas.custom_rules import load_custom_rules
-from scdm_qa.validation.global_checks import check_not_populated, check_sort_order, check_uniqueness
+from scdm_qa.validation.global_checks import check_date_ordering, check_not_populated, check_sort_order, check_uniqueness
 from scdm_qa.validation.results import StepResult, ValidationResult
 from scdm_qa.validation.runner import run_validation
 
@@ -171,6 +171,11 @@ def _process_table(
         not_pop_reader = create_reader(file_path, chunk_size=config.chunk_size)
         not_pop_steps = check_not_populated(schema, not_pop_reader.chunks())
         global_steps.extend(not_pop_steps)
+
+    # L2 check: date ordering (check 226)
+    date_order_reader = create_reader(file_path, chunk_size=config.chunk_size)
+    date_order_steps = check_date_ordering(schema, date_order_reader.chunks(), max_failing_rows=config.max_failing_rows)
+    global_steps.extend(date_order_steps)
 
     if global_steps:
         all_steps = list(validation_result.steps) + global_steps
