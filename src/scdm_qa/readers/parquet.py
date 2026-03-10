@@ -10,6 +10,8 @@ from scdm_qa.readers.base import TableMetadata
 
 class ParquetReader:
     def __init__(self, file_path: Path, *, chunk_size: int = 500_000) -> None:
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be positive, got {chunk_size}")
         self._file_path = file_path
         self._chunk_size = chunk_size
 

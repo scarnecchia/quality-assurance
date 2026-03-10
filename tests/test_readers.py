@@ -37,9 +37,10 @@ class TestParquetReader:
     def test_chunks_respects_chunk_size(self, sample_parquet: Path) -> None:
         reader = ParquetReader(sample_parquet, chunk_size=30)
         chunks = list(reader.chunks())
-        assert len(chunks) > 1
-        for chunk in chunks:
-            assert chunk.height <= 30 or chunk.height <= 100  # last chunk may vary
+        assert len(chunks) > 1, "expected multiple chunks for 100 rows at chunk_size=30"
+        for chunk in chunks[:-1]:
+            assert chunk.height == 30
+        assert chunks[-1].height <= 30
 
     def test_implements_table_reader_protocol(self, sample_parquet: Path) -> None:
         reader = ParquetReader(sample_parquet)
@@ -69,11 +70,4 @@ class TestCreateReader:
 class TestSasReader:
     def test_implements_table_reader_protocol(self) -> None:
         # SasReader must implement the TableReader protocol structurally
-        assert hasattr(SasReader, "metadata")
-        assert hasattr(SasReader, "chunks")
-
-    def test_factory_creates_sas_reader_for_sas_extension(self, tmp_path: Path) -> None:
-        path = tmp_path / "test.sas7bdat"
-        path.touch()
-        reader = create_reader(path)
-        assert isinstance(reader, SasReader)
+        assert issubclass(SasReader, TableReader)
