@@ -14,6 +14,8 @@ class StepResult:
     n_passed: int
     n_failed: int
     failing_rows: pl.DataFrame | None  # bounded sample
+    check_id: str | None = None
+    severity: str | None = None  # "Fail" | "Warn" | "Note" | None
 
     @property
     def n_total(self) -> int:

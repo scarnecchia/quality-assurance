@@ -7,6 +7,7 @@ import polars as pl
 import structlog
 
 from scdm_qa.readers.base import TableReader
+from scdm_qa.schemas.checks import get_per_chunk_checks_for_table
 from scdm_qa.schemas.custom_rules import ExtendFn
 from scdm_qa.schemas.models import TableSchema
 from scdm_qa.schemas.validation import build_validation
@@ -34,7 +35,7 @@ def run_validation(
         max_failing_rows=max_failing_rows,
     )
 
-    step_descriptions: list[tuple[int, str, str, str]] = []
+    step_descriptions: list[tuple[int, str, str, str, str | None, str | None]] = []
 
     for chunk_num, chunk in enumerate(reader.chunks(), start=1):
         if profiling_accumulator is not None:
@@ -110,13 +111,13 @@ def run_validation(
 def _build_step_descriptions(
     schema: TableSchema,
     present_columns: set[str],
-) -> list[tuple[int, str, str, str]]:
+) -> list[tuple[int, str, str, str, str | None, str | None]]:
     """Build step descriptions matching the order of steps in build_validation().
 
-    Returns list of (step_index, assertion_type, column, description).
+    Returns list of (step_index, assertion_type, column, description, check_id, severity).
     Step indices are 1-based to match pointblank's convention.
     """
-    descriptions: list[tuple[int, str, str, str]] = []
+    descriptions: list[tuple[int, str, str, str, str | None, str | None]] = []
     step_idx = 0
 
     for col in schema.columns:
@@ -124,13 +125,13 @@ def _build_step_descriptions(
             continue
         if not col.missing_allowed:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_not_null", col.name, f"{col.name} not null"))
+            descriptions.append((step_idx, "col_vals_not_null", col.name, f"{col.name} not null", None, None))
         if col.allowed_values is not None:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_in_set", col.name, f"{col.name} in allowed values"))
+            descriptions.append((step_idx, "col_vals_in_set", col.name, f"{col.name} in allowed values", None, None))
         if col.col_type == "Character" and col.length is not None:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_regex", col.name, f"{col.name} length <= {col.length}"))
+            descriptions.append((step_idx, "col_vals_regex", col.name, f"{col.name} length <= {col.length}", None, None))
 
     for rule in schema.conditional_rules:
         if rule.target_column not in present_columns:
@@ -145,6 +146,44 @@ def _build_step_descriptions(
             "col_vals_not_null (conditional)",
             rule.target_column,
             f"{rule.target_column} not null when {rule.condition_column} in {sorted(rule.condition_values)}",
+            None,
+            None,
         ))
+
+    # L1 per-chunk checks (122, 124, 128) — must mirror build_validation() order
+    for check_def in get_per_chunk_checks_for_table(schema.table_key):
+        if check_def.column not in present_columns:
+            continue
+
+        if check_def.check_type == "leading_spaces":
+            step_idx += 1
+            descriptions.append((
+                step_idx,
+                "col_vals_regex",
+                check_def.column,
+                f"{check_def.column} no leading spaces (check {check_def.check_id})",
+                check_def.check_id,
+                check_def.severity,
+            ))
+        elif check_def.check_type == "unexpected_zeros":
+            step_idx += 1
+            descriptions.append((
+                step_idx,
+                "col_vals_gt",
+                check_def.column,
+                f"{check_def.column} not zero (check {check_def.check_id})",
+                check_def.check_id,
+                check_def.severity,
+            ))
+        elif check_def.check_type == "non_numeric":
+            step_idx += 1
+            descriptions.append((
+                step_idx,
+                "col_vals_regex",
+                check_def.column,
+                f"{check_def.column} numeric only (check {check_def.check_id})",
+                check_def.check_id,
+                check_def.severity,
+            ))
 
     return descriptions

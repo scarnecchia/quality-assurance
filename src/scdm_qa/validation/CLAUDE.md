@@ -1,13 +1,13 @@
 # Validation Domain
 
-Last verified: 2026-03-09
+Last verified: 2026-03-10
 
 ## Purpose
 Runs per-chunk pointblank validation against SCDM schemas and accumulates results across chunks into a single coherent result per table.
 
 ## Contracts
-- **Exposes**: `run_validation(reader, schema, ...) -> ValidationResult`, `check_uniqueness(...)`, `check_sort_order(...)`, `StepResult`, `ValidationResult`
-- **Guarantees**: Results accumulate correctly across chunks (pass/fail counts merge). Failing row samples are bounded by `max_failing_rows`. Global checks (uniqueness, sort order) are separate from per-chunk validation.
+- **Exposes**: `run_validation(reader, schema, ...) -> ValidationResult`, `check_uniqueness(...)`, `check_sort_order(...)`, `check_not_populated(...)`, `check_date_ordering(...)`, `check_cause_of_death(...)`, `check_overlapping_spans(...)`, `check_enrollment_gaps(...)`, `check_enc_combinations(...)`, `StepResult`, `ValidationResult`
+- **Guarantees**: Results accumulate correctly across chunks (pass/fail counts merge). Failing row samples are bounded by `max_failing_rows`. Global checks run separately from per-chunk validation and are wired into pipeline.
 - **Expects**: A `TableReader` that yields `polars.DataFrame` chunks. A `TableSchema` with validation rules.
 
 ## Dependencies
@@ -22,11 +22,13 @@ Runs per-chunk pointblank validation against SCDM schemas and accumulates result
 
 ## Invariants
 - `StepResult` and `ValidationResult` are frozen dataclasses
+- `StepResult` carries `check_id: str | None` and `severity: str | None` ("Fail" | "Warn" | "Note" | None) for traceability and exit code logic
 - `f_failed` and `f_passed` are derived properties, never stored
 - Failing row samples never exceed `max_failing_rows`
+- Note-severity steps are informational and never escalate exit codes
 
 ## Key Files
 - `runner.py` - Main validation orchestrator
 - `accumulator.py` - `ValidationAccumulator` for cross-chunk merging
 - `results.py` - `StepResult`, `ValidationResult` data models
-- `global_checks.py` - Uniqueness and sort order checks
+- `global_checks.py` - L0 global checks (uniqueness, sort order), L1 check 111 (not populated), L2 checks 226, 236/237, 215/216, 244/245

@@ -17,6 +17,7 @@ def build_validation_table(result: ValidationResult) -> GT:
             "Check": step.assertion_type,
             "Column": step.column,
             "Description": step.description,
+            "CheckID": step.check_id or "—",
             "Total": step.n_total,
             "Passed": step.n_passed,
             "Failed": step.n_failed,
@@ -26,6 +27,7 @@ def build_validation_table(result: ValidationResult) -> GT:
     if not rows:
         rows.append({
             "Step": 0, "Check": "—", "Column": "—", "Description": "No validation steps",
+            "CheckID": "—",
             "Total": 0, "Passed": 0, "Failed": 0, "Pass Rate": 1.0,
         })
 
