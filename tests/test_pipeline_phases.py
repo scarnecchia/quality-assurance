@@ -11,7 +11,7 @@ Tests verify:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import polars as pl
 import pytest
@@ -55,7 +55,7 @@ class TestL1L2ConditionalExecution:
     def test_l1_only_no_cross_table_outcome(self, tmp_path: Path) -> None:
         """AC3.1: Config with run_l1=True, run_l2=False → only per-table outcomes."""
         config = self._make_minimal_config(tmp_path)
-        config = config.__class__(
+        config = QAConfig(
             tables=config.tables,
             output_dir=config.output_dir,
             run_l1=True,
@@ -88,7 +88,7 @@ class TestL1L2ConditionalExecution:
     def test_l2_only_no_per_table_outcomes(self, tmp_path: Path) -> None:
         """AC3.2: Config with run_l1=False, run_l2=True → only cross_table outcome."""
         config = self._make_minimal_config(tmp_path)
-        config = config.__class__(
+        config = QAConfig(
             tables=config.tables,
             output_dir=config.output_dir,
             run_l1=False,
@@ -124,7 +124,7 @@ class TestL1L2ConditionalExecution:
     def test_both_l1_and_l2_executes_both(self, tmp_path: Path) -> None:
         """AC3.3: Config with both True → both per-table and cross_table outcomes."""
         config = self._make_minimal_config(tmp_path)
-        config = config.__class__(
+        config = QAConfig(
             tables=config.tables,
             output_dir=config.output_dir,
             run_l1=True,
@@ -171,7 +171,7 @@ class TestL1L2ConditionalExecution:
     def test_l2_with_table_filter_filters_checks(self, tmp_path: Path) -> None:
         """AC3.7: With table_filter, L2 only runs checks involving that table."""
         config = self._make_minimal_config(tmp_path)
-        config = config.__class__(
+        config = QAConfig(
             tables=config.tables,
             output_dir=config.output_dir,
             run_l1=True,
@@ -219,7 +219,7 @@ class TestL1L2ConditionalExecution:
     def test_l2_skipped_in_profile_only_mode(self, tmp_path: Path) -> None:
         """L2 should not execute when profile_only=True."""
         config = self._make_minimal_config(tmp_path)
-        config = config.__class__(
+        config = QAConfig(
             tables=config.tables,
             output_dir=config.output_dir,
             run_l1=True,
@@ -244,7 +244,7 @@ class TestL1L2ConditionalExecution:
     def test_l2_empty_checks_skipped(self, tmp_path: Path) -> None:
         """If cross-table checks are empty, L2 is silently skipped."""
         config = self._make_minimal_config(tmp_path)
-        config = config.__class__(
+        config = QAConfig(
             tables=config.tables,
             output_dir=config.output_dir,
             run_l1=True,
@@ -279,7 +279,7 @@ class TestL1L2ConditionalExecution:
     def test_l2_empty_steps_no_outcome(self, tmp_path: Path) -> None:
         """If run_cross_table_checks returns empty list, no cross_table outcome."""
         config = self._make_minimal_config(tmp_path)
-        config = config.__class__(
+        config = QAConfig(
             tables=config.tables,
             output_dir=config.output_dir,
             run_l1=True,
@@ -307,6 +307,30 @@ class TestL1L2ConditionalExecution:
 
             # No cross_table outcome if steps are empty
             assert not any(o.table_key == "cross_table" for o in outcomes)
+
+    def test_l2_exception_produces_failed_outcome(self, tmp_path: Path) -> None:
+        """Exception in L2 produces failed cross_table outcome instead of crashing."""
+        config = self._make_minimal_config(tmp_path)
+        config = QAConfig(
+            tables=config.tables,
+            output_dir=config.output_dir,
+            run_l1=False,
+            run_l2=True,
+        )
+
+        with patch("scdm_qa.pipeline._process_table") as mock_process, \
+             patch("scdm_qa.validation.cross_table.run_cross_table_checks") as mock_cross:
+            # Simulate exception during L2 execution
+            mock_cross.side_effect = ValueError("Test error from cross-table engine")
+
+            # Should not raise; should return failed outcome
+            outcomes = run_pipeline(config)
+
+            # Verify cross_table outcome exists and has success=False
+            cross_table_outcomes = [o for o in outcomes if o.table_key == "cross_table"]
+            assert len(cross_table_outcomes) == 1
+            assert cross_table_outcomes[0].success is False
+            assert "Test error from cross-table engine" in cross_table_outcomes[0].error
 
 
 class TestExitCodeWithCrossTableResults:

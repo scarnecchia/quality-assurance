@@ -115,37 +115,41 @@ def run_pipeline(
 
     # L2: Cross-table validation
     if config.run_l2 and not profile_only:
-        from scdm_qa.schemas.cross_table_checks import get_cross_table_checks, get_checks_for_table
-        from scdm_qa.validation.cross_table import run_cross_table_checks
+        try:
+            from scdm_qa.schemas.cross_table_checks import get_cross_table_checks, get_checks_for_table
+            from scdm_qa.validation.cross_table import run_cross_table_checks
 
-        all_checks = get_cross_table_checks()
+            if table_filter:
+                all_checks = get_checks_for_table(table_filter)
+            else:
+                all_checks = get_cross_table_checks()
 
-        # Filter checks by table if --table is specified
-        if table_filter:
-            all_checks = get_checks_for_table(table_filter)
-
-        if all_checks:
-            cross_table_steps = run_cross_table_checks(
-                config, all_checks, table_filter=table_filter,
-            )
-
-            if cross_table_steps:
-                cross_table_vr = ValidationResult(
-                    table_key="cross_table",
-                    table_name="Cross-Table Checks",
-                    steps=tuple(cross_table_steps),
-                    total_rows=0,
-                    chunks_processed=0,
+            if all_checks:
+                cross_table_steps = run_cross_table_checks(
+                    config, all_checks, table_filter=table_filter,
                 )
-                outcomes.append(TableOutcome(
-                    table_key="cross_table",
-                    success=True,
-                    validation_result=cross_table_vr,
-                ))
-                # NOTE: Cross-table reporting (HTML report page + index entry) is
-                # NOT wired here. The cross_table outcome has no profiling_result,
-                # so the existing save_table_report() guard will skip it.
-                # Phase 7 adds the reporting integration for cross-table results.
+
+                if cross_table_steps:
+                    cross_table_vr = ValidationResult(
+                        table_key="cross_table",
+                        table_name="Cross-Table Checks",
+                        steps=tuple(cross_table_steps),
+                        total_rows=0,
+                        chunks_processed=0,
+                    )
+                    outcomes.append(TableOutcome(
+                        table_key="cross_table",
+                        success=True,
+                        validation_result=cross_table_vr,
+                    ))
+                    # NOTE: Cross-table reporting (HTML report page + index entry) is
+                    # NOT wired here. The cross_table outcome has no profiling_result,
+                    # so the existing save_table_report() guard will skip it.
+                    # Phase 7 adds the reporting integration for cross-table results.
+
+        except Exception as exc:
+            log.error("cross-table validation failed", error=str(exc))
+            outcomes.append(TableOutcome(table_key="cross_table", success=False, error=str(exc)))
 
     if report_summaries:
         save_index(config.output_dir, report_summaries)
