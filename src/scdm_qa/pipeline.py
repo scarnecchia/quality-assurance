@@ -245,10 +245,15 @@ def compute_exit_code(
 ) -> int:
     """Compute CLI exit code from pipeline outcomes.
 
+    Severity-aware:
+        - Note: informational only, never escalates exit code
+        - Warn: failures contribute to exit code 1
+        - Fail (or None): failures contribute to exit code 1; threshold exceedance → 2
+
     Returns:
-        0: all checks pass (no failures)
+        0: all checks pass (no failures in non-Note checks)
         1: some failures exist but all within threshold (warnings)
-        2: processing errors or at least one step exceeds error threshold
+        2: processing errors or at least one Fail/None step exceeds error threshold
     """
     has_errors = any(not o.success for o in outcomes)
     if has_errors:
@@ -261,6 +266,9 @@ def compute_exit_code(
         if o.validation_result is None:
             continue
         for step in o.validation_result.steps:
+            # Note-severity checks are informational — skip for exit code
+            if step.severity == "Note":
+                continue
             if step.n_failed > 0:
                 has_failures = True
                 if step.f_failed > error_threshold:
