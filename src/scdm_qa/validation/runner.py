@@ -8,6 +8,7 @@ import structlog
 
 from scdm_qa.readers.base import TableReader
 from scdm_qa.schemas.checks import get_per_chunk_checks_for_table
+from scdm_qa.schemas.code_checks import get_format_checks_for_table, get_length_checks_for_table
 from scdm_qa.schemas.custom_rules import ExtendFn
 from scdm_qa.schemas.models import TableSchema
 from scdm_qa.schemas.validation import build_validation
@@ -185,5 +186,74 @@ def _build_step_descriptions(
                 check_def.check_id,
                 check_def.severity,
             ))
+
+    # Code format checks (223) — must mirror build_validation() order
+    for fmt_check in get_format_checks_for_table(schema.table_key):
+        if fmt_check.column not in present_columns:
+            continue
+        if fmt_check.codetype_column not in present_columns:
+            continue
+
+        if fmt_check.check_subtype == "no_decimal":
+            step_idx += 1
+            descriptions.append((
+                step_idx,
+                "col_vals_regex",
+                fmt_check.column,
+                f"{fmt_check.column} no decimal for {fmt_check.codetype_value} (check {fmt_check.check_id})",
+                fmt_check.check_id,
+                fmt_check.severity,
+            ))
+        elif fmt_check.check_subtype == "regex":
+            step_idx += 1
+            descriptions.append((
+                step_idx,
+                "col_vals_regex",
+                fmt_check.column,
+                f"{fmt_check.column} regex match for {fmt_check.codetype_value} (check {fmt_check.check_id})",
+                fmt_check.check_id,
+                fmt_check.severity,
+            ))
+        elif fmt_check.check_subtype == "era_date":
+            if fmt_check.date_column not in present_columns:
+                continue
+            step_idx += 1
+            descriptions.append((
+                step_idx,
+                "col_vals_null",
+                fmt_check.column,
+                f"{fmt_check.column} era date check for {fmt_check.codetype_value} (check {fmt_check.check_id})",
+                fmt_check.check_id,
+                fmt_check.severity,
+            ))
+        elif fmt_check.check_subtype == "conditional_presence":
+            if fmt_check.condition_column not in present_columns:
+                continue
+            step_idx += 1
+            descriptions.append((
+                step_idx,
+                "col_vals_null" if fmt_check.expect_null else "col_vals_not_null",
+                fmt_check.column,
+                f"{fmt_check.column} conditional presence (check {fmt_check.check_id})",
+                fmt_check.check_id,
+                fmt_check.severity,
+            ))
+
+    # Code length checks (228) — must mirror build_validation() order
+    for len_check in get_length_checks_for_table(schema.table_key):
+        if len_check.column not in present_columns:
+            continue
+        if len_check.codetype_column not in present_columns:
+            continue
+
+        step_idx += 1
+        descriptions.append((
+            step_idx,
+            "col_vals_regex",
+            len_check.column,
+            f"{len_check.column} length {len_check.min_length}-{len_check.max_length} for {len_check.codetype_value} (check {len_check.check_id})",
+            len_check.check_id,
+            len_check.severity,
+        ))
 
     return descriptions
