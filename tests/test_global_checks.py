@@ -11,7 +11,9 @@ from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_p
 from scdm_qa.validation.global_checks import (
     check_cause_of_death,
     check_date_ordering,
+    check_enrollment_gaps,
     check_not_populated,
+    check_overlapping_spans,
     check_sort_order,
     check_uniqueness,
 )
@@ -862,3 +864,375 @@ class TestCauseOfDeath:
         assert len(results) == 2
         assert results[0].column == "CauseType"
         assert results[1].column == "CauseType"
+
+
+class TestOverlappingSpans:
+    """Test suite for check_overlapping_spans (L2 check 215)."""
+
+    def test_detects_overlapping_spans(self) -> None:
+        """Test AC2.2: Check 215 flags overlapping enrollment spans within same patient."""
+        schema = get_schema("enrollment")
+        # Patient P1 has two overlapping spans: [100, 200] and [150, 300]
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": [100, 150],
+                "Enr_End": [200, 300],
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
+        assert result is not None
+        assert result.check_id == "215"
+        assert result.n_failed > 0
+        assert result.assertion_type == "overlapping_spans"
+
+    def test_non_overlapping_spans_pass(self) -> None:
+        """Test that non-overlapping spans pass."""
+        schema = get_schema("enrollment")
+        # Patient P1 has non-overlapping spans: [100, 200] and [201, 300]
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": [100, 201],
+                "Enr_End": [200, 300],
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
+        assert result is not None
+        assert result.n_failed == 0
+        assert result.n_passed == 2
+
+    def test_returns_none_for_non_enrollment_table(self) -> None:
+        """Test that non-enrollment tables return None."""
+        schema = get_schema("demographic")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "Birth_Date": [1000],
+                "Sex": ["F"],
+                "Hispanic": ["Y"],
+                "Race": ["1"],
+            }),
+        ])
+
+        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
+        assert result is None
+
+    def test_check_id_215_and_severity_fail(self) -> None:
+        """Test AC4.1: Check 215 has correct check_id and severity."""
+        schema = get_schema("enrollment")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "PlanID": ["PL1"],
+                "Enr_Start": [100],
+                "Enr_End": [200],
+                "PlanType": ["HMO"],
+                "PayerType": ["Commercial"],
+            }),
+        ])
+
+        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
+        assert result is not None
+        assert result.check_id == "215"
+        assert result.severity == "Fail"
+
+    def test_multiple_patients_with_overlaps(self) -> None:
+        """Test overlap detection across multiple patients."""
+        schema = get_schema("enrollment")
+        # P1 has overlapping spans, P2 has non-overlapping
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1", "P2", "P2"],
+                "PlanID": ["PL1", "PL2", "PL3", "PL4"],
+                "Enr_Start": [100, 150, 500, 600],
+                "Enr_End": [200, 300, 550, 700],
+                "PlanType": ["HMO", "HMO", "PPO", "PPO"],
+                "PayerType": ["Commercial", "Commercial", "Medicare", "Medicare"],
+            }),
+        ])
+
+        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
+        assert result is not None
+        # P1 has 1 overlapping row (the second span), P2 has 0
+        assert result.n_failed == 1
+        assert result.n_passed == 3
+
+    def test_overlaps_across_chunks(self) -> None:
+        """Test overlap detection across chunk boundaries."""
+        schema = get_schema("enrollment")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "PlanID": ["PL1"],
+                "Enr_Start": [100],
+                "Enr_End": [200],
+                "PlanType": ["HMO"],
+                "PayerType": ["Commercial"],
+            }),
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "PlanID": ["PL2"],
+                "Enr_Start": [150],
+                "Enr_End": [300],
+                "PlanType": ["HMO"],
+                "PayerType": ["Commercial"],
+            }),
+        ])
+
+        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
+        assert result is not None
+        assert result.n_failed > 0
+
+    def test_duckdb_fast_path_with_parquet(self, tmp_path: Path) -> None:
+        """Test DuckDB fast path for Parquet files with overlapping spans."""
+        pytest.importorskip("duckdb")
+        schema = get_schema("enrollment")
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 150],
+            "Enr_End": [200, 300],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
+
+        result = check_overlapping_spans(path, schema)
+        assert result is not None
+        assert result.check_id == "215"
+        assert result.n_failed > 0
+
+    def test_duckdb_fallback_to_in_memory(self, tmp_path: Path) -> None:
+        """Test graceful fallback when DuckDB is unavailable."""
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 150],
+            "Enr_End": [200, 300],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
+
+        schema = get_schema("enrollment")
+
+        # Mock _overlapping_spans_duckdb to return None
+        with mock.patch("scdm_qa.validation.global_checks._overlapping_spans_duckdb", return_value=None):
+            chunks = iter([
+                pl.DataFrame({
+                    "PatID": ["P1", "P1"],
+                    "PlanID": ["PL1", "PL2"],
+                    "Enr_Start": [100, 150],
+                    "Enr_End": [200, 300],
+                    "PlanType": ["HMO", "HMO"],
+                    "PayerType": ["Commercial", "Commercial"],
+                }),
+            ])
+
+            result = check_overlapping_spans(path, schema, chunks)
+            assert result is not None
+            assert result.n_failed > 0
+
+
+class TestEnrollmentGaps:
+    """Test suite for check_enrollment_gaps (L2 check 216)."""
+
+    def test_detects_gaps(self) -> None:
+        """Test AC2.8: Check 216 flags non-bridged enrollment gaps."""
+        schema = get_schema("enrollment")
+        # Patient P1 has a gap: [100, 200] and [300, 400] (gap of 99 days)
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": [100, 300],
+                "Enr_End": [200, 400],
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        assert result.check_id == "216"
+        assert result.n_failed > 0
+        assert result.assertion_type == "enrollment_gaps"
+
+    def test_adjacent_spans_pass(self) -> None:
+        """Test AC2.8: Adjacent spans (Enr_End + 1 day == next Enr_Start) pass."""
+        schema = get_schema("enrollment")
+        # Patient P1 has adjacent spans: [100, 200] and [201, 300]
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": [100, 201],
+                "Enr_End": [200, 300],
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        assert result.n_failed == 0
+
+    def test_contiguous_spans_pass(self) -> None:
+        """Test that contiguous spans (no gap) pass."""
+        schema = get_schema("enrollment")
+        # Patient P1 has contiguous spans: [100, 200] and [200, 300]
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": [100, 200],
+                "Enr_End": [200, 300],
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        assert result.n_failed == 0
+
+    def test_returns_none_for_non_enrollment_table(self) -> None:
+        """Test that non-enrollment tables return None."""
+        schema = get_schema("demographic")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "Birth_Date": [1000],
+                "Sex": ["F"],
+                "Hispanic": ["Y"],
+                "Race": ["1"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is None
+
+    def test_check_id_216_and_severity_warn(self) -> None:
+        """Test AC4.3: Check 216 has correct check_id and severity."""
+        schema = get_schema("enrollment")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "PlanID": ["PL1"],
+                "Enr_Start": [100],
+                "Enr_End": [200],
+                "PlanType": ["HMO"],
+                "PayerType": ["Commercial"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        assert result.check_id == "216"
+        assert result.severity == "Warn"
+
+    def test_multiple_patients_with_gaps(self) -> None:
+        """Test gap detection across multiple patients."""
+        schema = get_schema("enrollment")
+        # P1 has a gap, P2 has no gap
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1", "P2", "P2"],
+                "PlanID": ["PL1", "PL2", "PL3", "PL4"],
+                "Enr_Start": [100, 300, 500, 501],
+                "Enr_End": [200, 400, 550, 650],
+                "PlanType": ["HMO", "HMO", "PPO", "PPO"],
+                "PayerType": ["Commercial", "Commercial", "Medicare", "Medicare"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        # P1 has 1 gap row (the second span), P2 has 0
+        assert result.n_failed == 1
+        assert result.n_passed == 3
+
+    def test_gaps_across_chunks(self) -> None:
+        """Test gap detection across chunk boundaries."""
+        schema = get_schema("enrollment")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "PlanID": ["PL1"],
+                "Enr_Start": [100],
+                "Enr_End": [200],
+                "PlanType": ["HMO"],
+                "PayerType": ["Commercial"],
+            }),
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "PlanID": ["PL2"],
+                "Enr_Start": [300],
+                "Enr_End": [400],
+                "PlanType": ["HMO"],
+                "PayerType": ["Commercial"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        assert result.n_failed > 0
+
+    def test_date_type_handling(self) -> None:
+        """Test that both Date and integer dtypes are handled correctly."""
+        schema = get_schema("enrollment")
+        # Use pl.Date dtype instead of integers
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": pl.Series(
+                    "Enr_Start",
+                    ["2020-01-01", "2020-02-01"],
+                    dtype=pl.Date,
+                ),
+                "Enr_End": pl.Series(
+                    "Enr_End",
+                    ["2020-01-31", "2020-02-28"],
+                    dtype=pl.Date,
+                ),
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        # Contiguous dates should pass
+        assert result.n_failed == 0
+
+    def test_failing_rows_sampled(self) -> None:
+        """Test that failing rows are captured correctly."""
+        schema = get_schema("enrollment")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": [100, 300],
+                "Enr_End": [200, 400],
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_enrollment_gaps(schema, chunks)
+        assert result is not None
+        assert result.n_failed > 0
+        assert result.failing_rows is not None
+        assert result.failing_rows.height > 0
