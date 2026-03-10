@@ -100,6 +100,61 @@ class TestSaveTableReport:
         assert "Profile" in html or "Completeness" in html
 
 
+class TestSaveTableReport__CheckID:
+    def test_renders_check_id_when_set(self, tmp_path: Path) -> None:
+        """Verify that check_id is rendered in the validation table HTML."""
+        failing_rows = pl.DataFrame({"PatID": [None]})
+        vr = ValidationResult(
+            table_key="demographic",
+            table_name="Demographic Table",
+            steps=(
+                StepResult(
+                    step_index=1,
+                    assertion_type="col_vals_not_null",
+                    column="PatID",
+                    description="PatID not null",
+                    n_passed=99,
+                    n_failed=1,
+                    failing_rows=failing_rows,
+                    check_id="122",
+                    severity="Fail",
+                ),
+            ),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = _make_profiling_result()
+        path = save_table_report(tmp_path, "demographic", vr, pr)
+        html = path.read_text()
+        assert "122" in html, "check_id '122' should render in HTML"
+
+    def test_renders_empty_dash_for_none_check_id(self, tmp_path: Path) -> None:
+        """Verify that None check_id renders as '—' in the validation table."""
+        vr = ValidationResult(
+            table_key="demographic",
+            table_name="Demographic Table",
+            steps=(
+                StepResult(
+                    step_index=1,
+                    assertion_type="col_vals_not_null",
+                    column="PatID",
+                    description="PatID not null",
+                    n_passed=100,
+                    n_failed=0,
+                    failing_rows=None,
+                    check_id=None,
+                ),
+            ),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = _make_profiling_result()
+        path = save_table_report(tmp_path, "demographic", vr, pr)
+        html = path.read_text()
+        # Check that the empty-dash placeholder appears in the validation table
+        assert "—" in html, "Empty check_id should render as '—'"
+
+
 class TestSaveIndex:
     def test_creates_index_html(self, tmp_path: Path) -> None:
         summaries = [
