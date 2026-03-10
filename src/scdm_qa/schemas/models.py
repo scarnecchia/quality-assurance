@@ -75,6 +75,30 @@ class LengthCheckDef:
 
 
 @dataclass(frozen=True)
+class CrossTableCheckDef:
+    check_id: str  # e.g. "201", "203", "205"
+    check_type: str  # "referential_integrity" | "length_consistency" | "cross_date_compare" | "length_excess" | "column_mismatch"
+    severity: str  # "Fail" | "Warn" | "Note"
+    description: str
+
+    # Tables involved
+    source_table: str  # primary table for this check
+    reference_table: str | None  # join target (None for single-table checks like 224)
+
+    # Column configuration (interpretation depends on check_type)
+    source_column: str | None  # e.g. "PatID" for referential_integrity
+    reference_column: str | None  # e.g. "PatID" for join column in reference table
+    target_column: str | None  # secondary column (e.g. date column for cross_date_compare)
+
+    # For column_mismatch (check 224): compare two columns in same table
+    column_a: str | None = None  # e.g. "Hispanic"
+    column_b: str | None = None  # e.g. "ImputedHispanic"
+
+    # For length_consistency (check 203): compare same column across multiple tables
+    table_group: tuple[str, ...] | None = None  # e.g. ("diagnosis", "procedure", "encounter")
+
+
+@dataclass(frozen=True)
 class TableSchema:
     table_name: str
     table_key: str  # normalised key, e.g. "enrollment"
