@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, TypedDict
 
 import polars as pl
 import structlog
@@ -10,6 +10,11 @@ from scdm_qa.schemas.models import TableSchema
 from scdm_qa.validation.results import StepResult
 
 log = structlog.get_logger(__name__)
+
+
+class SortViolation(TypedDict):
+    chunk_boundary: str
+    issue: str
 
 
 def check_uniqueness(
@@ -45,20 +50,21 @@ def _uniqueness_duckdb(
     except ImportError:
         return None
 
+    safe_path = str(file_path).replace("'", "''")
     cols_sql = ", ".join(f'"{c}"' for c in key_cols)
     query = f"""
         SELECT {cols_sql}, COUNT(*) AS _dup_count
-        FROM read_parquet('{file_path}')
+        FROM read_parquet('{safe_path}')
         GROUP BY {cols_sql}
         HAVING COUNT(*) > 1
         LIMIT {max_failing_rows}
     """
-    total_query = f"SELECT COUNT(*) FROM read_parquet('{file_path}')"
+    total_query = f"SELECT COUNT(*) FROM read_parquet('{safe_path}')"
 
     dup_rows_query = f"""
         SELECT SUM(_dup_count) FROM (
             SELECT COUNT(*) AS _dup_count
-            FROM read_parquet('{file_path}')
+            FROM read_parquet('{safe_path}')
             GROUP BY {cols_sql}
             HAVING COUNT(*) > 1
         )
@@ -66,9 +72,13 @@ def _uniqueness_duckdb(
 
     conn = duckdb.connect()
     try:
-        total_rows = conn.execute(total_query).fetchone()[0]
-        dup_row_total = conn.execute(dup_rows_query).fetchone()[0] or 0
-        failing_df = conn.execute(query).pl()
+        try:
+            total_rows = conn.execute(total_query).fetchone()[0]
+            dup_row_total = conn.execute(dup_rows_query).fetchone()[0] or 0
+            failing_df = conn.execute(query).pl()
+        except Exception as e:
+            log.warning("duckdb execution failed", error=str(e))
+            return None
     finally:
         conn.close()
 
@@ -151,7 +161,7 @@ def check_sort_order(
     description = f"Sort order on ({', '.join(sort_cols)})"
 
     prev_last_row: pl.DataFrame | None = None
-    violations: list[dict] = []
+    violations: list[SortViolation] = []
     total_rows = 0
     chunk_num = 0
 
