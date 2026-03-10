@@ -6,8 +6,8 @@ Last verified: 2026-03-10
 Parses the upstream SCDM specification into typed data models and builds pointblank validation plans from them. This is the single source of truth for what constitutes a valid SCDM table.
 
 ## Contracts
-- **Exposes**: `get_schema(table_key) -> TableSchema`, `list_table_keys()`, `build_validation(schema, df) -> Validate`, `parse_spec() -> list[TableSchema]`, `ENC_COMBINATION_RULES`, `ENC_RATE_THRESHOLDS`
-- **Guarantees**: Lazy-loaded registry caches parsed schemas. All 19 SCDM tables are parsed from `tables_documentation.json`. `build_validation` produces a pointblank `Validate` object with nullability, enum, length, and conditional rules. ENC combination rules define valid field combinations per EncType for checks 244/245.
+- **Exposes**: `get_schema(table_key) -> TableSchema`, `list_table_keys()`, `build_validation(schema, df) -> Validate`, `parse_spec() -> list[TableSchema]`, `L1_CHECK_REGISTRY`, `DATE_ORDERING_CHECKS`, `ENC_COMBINATION_RULES`, `ENC_RATE_THRESHOLDS`, `L1CheckDef`, `DateOrderingDef`
+- **Guarantees**: Lazy-loaded registry caches parsed schemas. All 19 SCDM tables are parsed from `tables_documentation.json`. `build_validation` produces a pointblank `Validate` object with nullability, enum, length, conditional rules, and L1 per-chunk checks (122, 124, 128). Check registries (`L1_CHECK_REGISTRY`, `DATE_ORDERING_CHECKS`) map table keys to their applicable checks. ENC combination rules define valid field combinations per EncType for checks 244/245.
 - **Expects**: `tables_documentation.json` is present and structurally valid. pointblank is installed.
 
 ## Dependencies
@@ -21,12 +21,12 @@ Parses the upstream SCDM specification into typed data models and builds pointbl
 - Custom rules via `load_custom_rules()`: Users extend validation by dropping Python files in a directory
 
 ## Invariants
-- `TableSchema`, `ColumnDef`, `ConditionalRule` are all frozen dataclasses
+- `TableSchema`, `ColumnDef`, `ConditionalRule`, `L1CheckDef`, `DateOrderingDef` are all frozen dataclasses
 - `table_key` is the normalised lowercase key used everywhere as the canonical table identifier
 - `tables_documentation.json` must not be edited (upstream artifact)
 
 ## Key Files
-- `models.py` - `TableSchema`, `ColumnDef`, `ConditionalRule` dataclasses
+- `models.py` - `TableSchema`, `ColumnDef`, `ConditionalRule`, `L1CheckDef`, `DateOrderingDef` dataclasses
 - `parser.py` - JSON spec parser
 - `validation.py` - pointblank validation builder
 - `custom_rules.py` - User-provided rule extension loader

@@ -1,6 +1,6 @@
 # SCDM Quality Assurance
 
-Last verified: 2026-03-09
+Last verified: 2026-03-10
 
 ## Tech Stack
 - Language: Python 3.12+
@@ -25,9 +25,9 @@ Last verified: 2026-03-09
   - `config.py` - TOML config loader (`QAConfig` dataclass)
   - `pipeline.py` - Orchestrator: per-table isolation, exit code logic
   - `logging.py` - structlog setup (console + JSON file)
-  - `schemas/` - SCDM table definitions, JSON spec parser, pointblank rule builder
+  - `schemas/` - SCDM table definitions, JSON spec parser, pointblank rule builder, L1/L2 check registry
   - `readers/` - Chunked file readers (Parquet, SAS) behind a Protocol
-  - `validation/` - Per-chunk validation runner, accumulator, global checks
+  - `validation/` - Per-chunk validation runner, accumulator, L0/L1/L2 global checks
   - `profiling/` - Streaming column statistics accumulator
   - `reporting/` - HTML report builder and multi-table index page
 - `tests/` - pytest tests (one file per module)
@@ -38,8 +38,9 @@ Last verified: 2026-03-09
 - Chunks are `polars.DataFrame` throughout the pipeline
 - Validation uses pointblank for rule expression
 - Single-pass architecture: profiling runs inside the validation loop
-- Global checks (uniqueness, sort order) require separate scans
-- Exit codes: 0=pass, 1=warnings (within threshold), 2=errors/threshold exceeded
+- Global checks (uniqueness, sort order, L1/L2 checks) require separate scans
+- StepResult carries `check_id` and `severity` ("Fail" | "Warn" | "Note" | None)
+- Exit codes are severity-aware: 0=pass (no non-Note failures), 1=warnings (failures within threshold), 2=errors or threshold exceeded (Note-severity checks are informational and never escalate exit code)
 
 ## Configuration
 TOML config with `[tables]` section mapping table keys to file paths, plus `[options]` for chunk_size, max_failing_rows, error_threshold, output_dir, custom_rules_dir, log_file, verbose.

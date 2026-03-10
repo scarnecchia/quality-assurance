@@ -22,8 +22,10 @@ Runs per-chunk pointblank validation against SCDM schemas and accumulates result
 
 ## Invariants
 - `StepResult` and `ValidationResult` are frozen dataclasses
+- `StepResult` carries `check_id: str | None` and `severity: str | None` ("Fail" | "Warn" | "Note" | None) for traceability and exit code logic
 - `f_failed` and `f_passed` are derived properties, never stored
 - Failing row samples never exceed `max_failing_rows`
+- Note-severity steps are informational and never escalate exit codes
 
 ## Key Files
 - `runner.py` - Main validation orchestrator
