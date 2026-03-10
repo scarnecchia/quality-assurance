@@ -47,6 +47,8 @@ class TestRunCommand:
             "Sex": ["F", "M", "F", "M", "F"],
             "Hispanic": ["Y", "N", "Y", "N", "Y"],
             "Race": ["1", "2", "3", "1", "2"],
+            "ImputedHispanic": ["Y", "N", "U", "Y", "N"],
+            "ImputedRace": ["1", "2", "3", "4", "5"],
         })
         df.write_parquet(data_dir / "demographic.parquet")
 
@@ -89,6 +91,8 @@ class TestRunCommand:
             "Sex": ["F" if i % 2 == 0 else "M" for i in range(100)],
             "Hispanic": ["Y" if i % 2 == 0 else "N" for i in range(100)],
             "Race": [str((i % 3) + 1) for i in range(100)],
+            "ImputedHispanic": ["Y" if i % 2 == 0 else "N" for i in range(100)],
+            "ImputedRace": [str((i % 5) + 1) for i in range(100)],
         })
         df.write_parquet(data_dir / "demographic.parquet")
 
@@ -115,6 +119,8 @@ class TestRunCommandTableFilter:
             "Sex": ["F", "M"],
             "Hispanic": ["Y", "N"],
             "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
         }).write_parquet(data_dir / "demographic.parquet")
 
         pl.DataFrame({

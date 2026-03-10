@@ -13,7 +13,7 @@ from scdm_qa.reporting.builder import save_table_report
 from scdm_qa.reporting.index import ReportSummary, make_report_summary, save_index
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.custom_rules import load_custom_rules
-from scdm_qa.validation.global_checks import check_sort_order, check_uniqueness
+from scdm_qa.validation.global_checks import check_not_populated, check_sort_order, check_uniqueness
 from scdm_qa.validation.results import StepResult, ValidationResult
 from scdm_qa.validation.runner import run_validation
 
@@ -164,6 +164,11 @@ def _process_table(
         sort_step = check_sort_order(schema, sort_reader.chunks())
         if sort_step is not None:
             global_steps.append(sort_step)
+
+    # L1 global check: not populated (check 111)
+    not_pop_reader = create_reader(file_path, chunk_size=config.chunk_size)
+    not_pop_steps = check_not_populated(schema, not_pop_reader.chunks())
+    global_steps.extend(not_pop_steps)
 
     if global_steps:
         all_steps = list(validation_result.steps) + global_steps
