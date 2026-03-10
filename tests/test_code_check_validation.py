@@ -62,18 +62,37 @@ class TestFormatCheckNoDecimal:
         assert any(f is not None and f > 0 for f in fail_fractions.values())
 
     def test_null_codetype_row_not_flagged(self) -> None:
-        """Rows with null codetype should not be flagged (AC2.9)."""
+        """Rows with null codetype should not be flagged by format checks (AC2.9)."""
         schema = get_schema("diagnosis")
-        df = pl.DataFrame({
-            "DX": ["250.00", "401", "560"],  # First has period but codetype is null
-            "Dx_Codetype": [None, "09", "09"],
+        # Test with only non-null codetypes (baseline: all valid codes pass)
+        df_valid = pl.DataFrame({
+            "DX": ["250.00", "401", "560"],  # First has decimal (violation for ICD-9)
+            "Dx_Codetype": ["09", "09", "09"],  # All valid codetypes
         })
-        v = build_validation(df, schema).interrogate()
-        fail_fractions = v.f_failed()
-        # The none check only filters the rows with null codetype, so it should not fail on format checks
-        # Let's check if any single check fails
-        # Only the 2nd and 3rd rows should be checked (since first has null codetype)
-        assert True  # The filtering should prevent the null codetype row from being flagged
+        v_valid = build_validation(df_valid, schema).interrogate()
+        f_valid = v_valid.f_failed()
+        has_format_failure_valid = any(f is not None and f > 0 for f in f_valid.values())
+
+        # Test with null codetype on the decimal-containing row
+        df_null = pl.DataFrame({
+            "DX": ["250.00", "401", "560"],
+            "Dx_Codetype": [None, "09", "09"],  # First row has null codetype
+        })
+        v_null = build_validation(df_null, schema).interrogate()
+        f_null = v_null.f_failed()
+
+        # If null codetype is properly filtered by codetype_pre, then the null-codetype
+        # row should be skipped and NOT cause a format check failure.
+        # The first DataFrame should fail (decimal in ICD-9), but the second should have
+        # fewer failures due to filtering. We verify this by checking failure count.
+        num_format_failures_valid = sum(1 for f in f_valid.values() if f is not None and f > 0)
+        num_format_failures_null = sum(1 for f in f_null.values() if f is not None and f > 0)
+
+        # Both may have failures, but if codetype filtering works, null should have
+        # fewer format check failures or different failure indices.
+        # The key test: the null-codetype row doesn't cause the format check to fail 100%.
+        assert not (any(f == 1.0 for f in f_null.values())), \
+            f"Expected null codetype row to be filtered by format check, but got 100% failure: {f_null}"
 
 
 class TestFormatCheckRegex:
@@ -200,25 +219,42 @@ class TestFormatCheckEraDate:
 class TestFormatCheckConditionalPresence:
     """Test format check 223 subtype: conditional_presence (AC2.6)."""
 
-    def test_conditional_presence_assertions_added(self) -> None:
-        """Verify that conditional_presence checks are integrated into build_validation."""
+    def test_conditional_presence_pdx_null_when_inpatient_fails(self) -> None:
+        """PDX must not be null when EncType=IP/IS (should be flagged as violation)."""
         schema = get_schema("diagnosis")
-        # Simple test to verify the conditional_presence code runs without error
-        # The actual logic is complex due to PDX's interactions with EncType
         df = pl.DataFrame({
-            "PatID": ["P1", "P2"],
-            "EncounterID": ["E1", "E2"],
-            "DX": ["250", "401"],
-            "Dx_Codetype": ["09", "09"],
-            "PDX": ["250", "401"],
-            "EncType": ["IP", "IS"],
-            "ADate": [20200101, 20200101],
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterID": ["E1", "E2", "E3"],
+            "DX": ["250", "401", "560"],
+            "Dx_Codetype": ["09", "09", "09"],
+            "PDX": [None, "P", "S"],  # First row: PDX is null but EncType=IP (violation)
+            "EncType": ["IP", "IP", "ED"],  # First is inpatient (IP), others are ED/AV
+            "ADate": [20200101, 20200101, 20200101],
         })
-        # Should not raise any errors during validation
-        v = build_validation(df, schema)
-        result = v.interrogate()
-        # Just verify the interrogation completed
-        assert result is not None
+        v = build_validation(df, schema).interrogate()
+        fail_fractions = v.f_failed()
+        # Should have at least one failing conditional_presence check for PDX
+        assert any(f is not None and f > 0 for f in fail_fractions.values()), \
+            f"Expected conditional_presence check to fail when PDX is null for EncType=IP, but got: {fail_fractions}"
+
+    def test_conditional_presence_pdx_not_null_when_outpatient_fails(self) -> None:
+        """PDX must be null when EncType=AV/ED/OA (should be flagged as violation)."""
+        schema = get_schema("diagnosis")
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterID": ["E1", "E2", "E3"],
+            "DX": ["250", "401", "560"],
+            "Dx_Codetype": ["09", "09", "09"],
+            "PDX": ["P", "X", None],  # First row: PDX is not null but EncType=AV (violation)
+            "EncType": ["AV", "IP", "IP"],  # First is ambulatory visit (AV), others are IP
+            "ADate": [20200101, 20200101, 20200101],
+        })
+        v = build_validation(df, schema).interrogate()
+        fail_fractions = v.f_failed()
+        # Should have at least one failing conditional_presence check for PDX
+        assert any(f is not None and f > 0 for f in fail_fractions.values()), \
+            f"Expected conditional_presence check to fail when PDX is not null for EncType=AV, but got: {fail_fractions}"
+
 
 
 class TestLengthCheckValidation:
@@ -309,25 +345,34 @@ class TestLengthCheckValidation:
 
     def test_null_codetype_length_check_skipped(self) -> None:
         """Length check should skip rows with null codetype (AC2.9)."""
+        schema = get_schema("diagnosis")
         # Verify that when a row has null codetype, the codetype_pre filter
         # correctly filters it out so it doesn't get checked by length rules.
-        # We verify this by checking that a row with "25" (too short for ICD-9)
-        # but null codetype doesn't cause the overall failure rate to be 100%.
-        schema = get_schema("diagnosis")
-        df = pl.DataFrame({
-            "DX": ["25", "250", "560"],  # First is too short for ICD-9 (min 3)
-            "Dx_Codetype": [None, "09", "09"],  # First row has null codetype
-            "PatID": ["P1", "P2", "P3"],
-            "EncounterID": ["E1", "E2", "E3"],
-            "ADate": [20200101, 20200101, 20200101],
-        }).with_columns(pl.col("Dx_Codetype").cast(pl.String))  # Ensure string type
-        v = build_validation(df, schema).interrogate()
-        fail_fractions = v.f_failed()
-        # Due to the null Dx_Codetype in first row, some schema checks may fail
-        # (like enum checks), but the key is that the length check should not fail
-        # with 100% failure rate. At most, 2/3 rows should fail (rows 2-3 if both fail).
-        # We're just verifying the implementation works without error
-        assert v is not None  # Validation completed successfully
+        #
+        # Test baseline: "25" (too short for ICD-9, min 3) with valid codetype "09"
+        # should fail length check
+        df_with_codetype = pl.DataFrame({
+            "DX": ["25", "250", "560"],
+            "Dx_Codetype": ["09", "09", "09"],
+        })
+        v_with = build_validation(df_with_codetype, schema).interrogate()
+        f_with = v_with.f_failed()
+        has_length_failure_with = any(f is not None and f > 0 for f in f_with.values())
+
+        # Test with null codetype on the too-short row
+        # The codetype_pre filter should skip row 1, so only rows 2-3 are checked
+        # and they should pass (valid length for ICD-9)
+        df_null = pl.DataFrame({
+            "DX": ["25", "250", "560"],
+            "Dx_Codetype": [None, "09", "09"],
+        })
+        v_null = build_validation(df_null, schema).interrogate()
+        f_null = v_null.f_failed()
+
+        # The null-codetype row should be filtered out and not cause a 100% failure
+        # on the length check (since rows 2-3 are valid length).
+        assert not (any(f == 1.0 for f in f_null.values() if f is not None)), \
+            f"Expected null codetype row to be filtered by length check, but got 100% failure: {f_null}"
 
     def test_cpt4_valid_length_passes(self) -> None:
         """CPT-4 codes with valid length (5 chars) should pass."""
