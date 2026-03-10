@@ -78,3 +78,46 @@ class TestQAConfig:
         cfg = QAConfig(tables={"a": Path("/a")})
         with pytest.raises(AttributeError):
             cfg.chunk_size = 999  # type: ignore[misc]
+
+
+class TestL1L2ConfigOptions:
+    def test_defaults_to_both_true(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[tables]\nenrollment = "/data/enrollment.parquet"\n')
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is True
+        assert cfg.run_l2 is True
+
+    def test_run_l1_false_run_l2_true(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l1 = false\nrun_l2 = true\n'
+        )
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is False
+        assert cfg.run_l2 is True
+
+    def test_run_l1_true_run_l2_false(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l1 = true\nrun_l2 = false\n'
+        )
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is True
+        assert cfg.run_l2 is False
+
+    def test_both_false(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l1 = false\nrun_l2 = false\n'
+        )
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is False
+        assert cfg.run_l2 is False
