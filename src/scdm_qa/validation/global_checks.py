@@ -501,7 +501,7 @@ def _overlapping_spans_duckdb(
     finally:
         conn.close()
 
-    n_passed = total_rows - n_failed
+    n_passed = total_rows - n_failed if total_rows > n_failed else 0
 
     return StepResult(
         step_index=-1,
@@ -546,7 +546,7 @@ def _overlapping_spans_in_memory(
     )
 
     n_failed = overlaps.height
-    n_passed = total_rows - n_failed
+    n_passed = total_rows - n_failed if total_rows > n_failed else 0
 
     return StepResult(
         step_index=-1,

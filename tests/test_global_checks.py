@@ -992,6 +992,34 @@ class TestOverlappingSpans:
         assert result is not None
         assert result.n_failed > 0
 
+    def test_date_type_handling(self) -> None:
+        """Test that both Date and integer dtypes are handled correctly."""
+        schema = get_schema("enrollment")
+        # Use pl.Date dtype instead of integers
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1", "P1"],
+                "PlanID": ["PL1", "PL2"],
+                "Enr_Start": pl.Series(
+                    "Enr_Start",
+                    ["2020-01-01", "2020-01-15"],
+                    dtype=pl.Date,
+                ),
+                "Enr_End": pl.Series(
+                    "Enr_End",
+                    ["2020-01-31", "2020-02-28"],
+                    dtype=pl.Date,
+                ),
+                "PlanType": ["HMO", "HMO"],
+                "PayerType": ["Commercial", "Commercial"],
+            }),
+        ])
+
+        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
+        assert result is not None
+        # Overlapping dates should be detected
+        assert result.n_failed > 0
+
     def test_duckdb_fast_path_with_parquet(self, tmp_path: Path) -> None:
         """Test DuckDB fast path for Parquet files with overlapping spans."""
         pytest.importorskip("duckdb")
