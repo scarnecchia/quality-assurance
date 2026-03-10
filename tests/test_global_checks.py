@@ -11,6 +11,7 @@ from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_p
 from scdm_qa.validation.global_checks import (
     check_cause_of_death,
     check_date_ordering,
+    check_enc_combinations,
     check_enrollment_gaps,
     check_not_populated,
     check_overlapping_spans,
@@ -1264,3 +1265,266 @@ class TestEnrollmentGaps:
         assert result.n_failed > 0
         assert result.failing_rows is not None
         assert result.failing_rows.height > 0
+
+
+class TestEncCombinations:
+    """Test suite for check_enc_combinations (L2 checks 244, 245)."""
+
+    def test_invalid_combo_ip_missing_ddate(self) -> None:
+        """Test AC2.4: Check 244 flags IP rows where DDate is null (required)."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1", "E2"],
+                "PatID": ["P1", "P2"],
+                "EncounterDate": [1000, 2000],
+                "EncType": ["IP", "IP"],
+                "DDate": [None, 1500],  # E1 missing DDate (invalid for IP)
+                "Discharge_Disposition": ["1", "2"],
+                "Discharge_Status": ["A", "A"],
+                "Admitting_Source": ["01", "01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        # Should have check 244 result
+        check_244 = next(r for r in results if r.check_id == "244")
+        assert check_244.n_failed == 1  # E1 is invalid
+        assert check_244.n_passed == 1
+
+    def test_valid_combo_ip_all_fields(self) -> None:
+        """Test AC2.4: Check 244 passes when IP has all required fields."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1"],
+                "PatID": ["P1"],
+                "EncounterDate": [1000],
+                "EncType": ["IP"],
+                "DDate": [1500],  # DDate present
+                "Discharge_Disposition": ["1"],  # Present
+                "Discharge_Status": ["A"],  # Present
+                "Admitting_Source": ["01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_244 = next(r for r in results if r.check_id == "244")
+        assert check_244.n_failed == 0
+        assert check_244.n_passed == 1
+
+    def test_valid_combo_av_with_nulls(self) -> None:
+        """Test AC2.4: Check 244 passes when AV has null DDate, Disposition, Status."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1"],
+                "PatID": ["P1"],
+                "EncounterDate": [1000],
+                "EncType": ["AV"],
+                "DDate": [None],  # Null is OK for AV
+                "Discharge_Disposition": [None],  # Null is OK for AV
+                "Discharge_Status": [None],  # Null is OK for AV
+                "Admitting_Source": ["01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_244 = next(r for r in results if r.check_id == "244")
+        assert check_244.n_failed == 0
+        assert check_244.n_passed == 1
+
+    def test_threshold_exceeded_check_245(self) -> None:
+        """Test AC2.5: Check 245 flags EncType groups exceeding threshold."""
+        schema = get_schema("encounter")
+        # Create 100 IP rows, 10 invalid (10% > 5% threshold)
+        ip_rows = []
+        for i in range(100):
+            if i < 10:
+                # Invalid: missing DDate
+                ip_rows.append({
+                    "EncounterID": f"E{i}",
+                    "PatID": f"P{i}",
+                    "EncounterDate": 1000 + i,
+                    "EncType": "IP",
+                    "DDate": None,  # Invalid for IP
+                    "Discharge_Disposition": "1",
+                    "Discharge_Status": "A",
+                    "Admitting_Source": "01",
+                })
+            else:
+                # Valid
+                ip_rows.append({
+                    "EncounterID": f"E{i}",
+                    "PatID": f"P{i}",
+                    "EncounterDate": 1000 + i,
+                    "EncType": "IP",
+                    "DDate": 1500 + i,
+                    "Discharge_Disposition": "1",
+                    "Discharge_Status": "A",
+                    "Admitting_Source": "01",
+                })
+
+        chunks = iter([pl.DataFrame(ip_rows)])
+        results = check_enc_combinations(schema, chunks)
+
+        check_245_ip = next((r for r in results if r.check_id == "245" and "IP" in r.column), None)
+        assert check_245_ip is not None
+        assert check_245_ip.n_failed == 10  # 10% exceeds 5% threshold
+        assert check_245_ip.n_passed == 90  # Remaining valid rows
+
+    def test_threshold_not_exceeded_check_245(self) -> None:
+        """Test AC2.5: Check 245 passes when EncType group is under threshold."""
+        schema = get_schema("encounter")
+        # Create 100 IP rows, 3 invalid (3% < 5% threshold)
+        ip_rows = []
+        for i in range(100):
+            if i < 3:
+                # Invalid: missing DDate
+                ip_rows.append({
+                    "EncounterID": f"E{i}",
+                    "PatID": f"P{i}",
+                    "EncounterDate": 1000 + i,
+                    "EncType": "IP",
+                    "DDate": None,  # Invalid for IP
+                    "Discharge_Disposition": "1",
+                    "Discharge_Status": "A",
+                    "Admitting_Source": "01",
+                })
+            else:
+                # Valid
+                ip_rows.append({
+                    "EncounterID": f"E{i}",
+                    "PatID": f"P{i}",
+                    "EncounterDate": 1000 + i,
+                    "EncType": "IP",
+                    "DDate": 1500 + i,
+                    "Discharge_Disposition": "1",
+                    "Discharge_Status": "A",
+                    "Admitting_Source": "01",
+                })
+
+        chunks = iter([pl.DataFrame(ip_rows)])
+        results = check_enc_combinations(schema, chunks)
+
+        check_245_ip = next((r for r in results if r.check_id == "245" and "IP" in r.column), None)
+        assert check_245_ip is not None
+        assert check_245_ip.n_failed == 0  # 3% under threshold
+        assert check_245_ip.n_passed == 100
+
+    def test_unknown_enctype_flagged(self) -> None:
+        """Test that unknown EncType values are flagged as invalid."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1", "E2"],
+                "PatID": ["P1", "P2"],
+                "EncounterDate": [1000, 2000],
+                "EncType": ["IP", "XX"],  # XX is unknown
+                "DDate": [1500, 1600],
+                "Discharge_Disposition": ["1", "2"],
+                "Discharge_Status": ["A", "A"],
+                "Admitting_Source": ["01", "01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_244 = next(r for r in results if r.check_id == "244")
+        assert check_244.n_failed == 1  # E2 has unknown EncType
+        assert check_244.n_passed == 1
+
+    def test_non_encounter_table_returns_empty(self) -> None:
+        """Test that non-encounter tables return empty list."""
+        schema = get_schema("demographic")
+        chunks = iter([
+            pl.DataFrame({
+                "PatID": ["P1"],
+                "Birth_Date": [1000],
+                "Sex": ["F"],
+                "Hispanic": ["Y"],
+                "Race": ["1"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+        assert results == []
+
+    def test_missing_required_columns_returns_empty(self) -> None:
+        """Test that missing required columns returns empty list."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1"],
+                "PatID": ["P1"],
+                "EncounterDate": [1000],
+                # Missing EncType, DDate, Discharge_Disposition, Discharge_Status
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+        assert results == []
+
+    def test_check_244_has_correct_id(self) -> None:
+        """Test AC4.1: Check 244 result has check_id='244'."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1"],
+                "PatID": ["P1"],
+                "EncounterDate": [1000],
+                "EncType": ["IP"],
+                "DDate": [1500],
+                "Discharge_Disposition": ["1"],
+                "Discharge_Status": ["A"],
+                "Admitting_Source": ["01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_244 = next(r for r in results if r.check_id == "244")
+        assert check_244.check_id == "244"
+        assert check_244.severity == "Fail"
+
+    def test_check_245_has_correct_id(self) -> None:
+        """Test AC4.1: Check 245 result has check_id='245'."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1"],
+                "PatID": ["P1"],
+                "EncounterDate": [1000],
+                "EncType": ["IP"],
+                "DDate": [1500],
+                "Discharge_Disposition": ["1"],
+                "Discharge_Status": ["A"],
+                "Admitting_Source": ["01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_245_results = [r for r in results if r.check_id == "245"]
+        assert len(check_245_results) > 0
+        for result in check_245_results:
+            assert result.check_id == "245"
+            assert result.severity == "Fail"
+
+    def test_multiple_enctypes_multiple_checks_245(self) -> None:
+        """Test that check 245 has one result per EncType with non-zero count."""
+        schema = get_schema("encounter")
+        chunks = iter([
+            pl.DataFrame({
+                "EncounterID": ["E1", "E2", "E3"],
+                "PatID": ["P1", "P2", "P3"],
+                "EncounterDate": [1000, 2000, 3000],
+                "EncType": ["IP", "ED", "AV"],
+                "DDate": [1500, None, None],
+                "Discharge_Disposition": ["1", None, None],
+                "Discharge_Status": ["A", None, None],
+                "Admitting_Source": ["01", "01", "01"],
+            }),
+        ])
+        results = check_enc_combinations(schema, chunks)
+
+        check_245_results = [r for r in results if r.check_id == "245"]
+        # Should have results for IP, ED, AV (all have non-zero count)
+        assert len(check_245_results) == 3
+        enctypes = {r.column.split("=")[1] for r in check_245_results}
+        assert enctypes == {"IP", "ED", "AV"}

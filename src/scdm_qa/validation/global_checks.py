@@ -6,7 +6,12 @@ from typing import Iterator, TypedDict
 import polars as pl
 import structlog
 
-from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
+from scdm_qa.schemas.checks import (
+    ENC_COMBINATION_RULES,
+    ENC_RATE_THRESHOLDS,
+    get_date_ordering_checks_for_table,
+    get_not_populated_checks_for_table,
+)
 from scdm_qa.schemas.models import TableSchema
 from scdm_qa.validation.results import StepResult
 
@@ -622,3 +627,117 @@ def check_enrollment_gaps(
         check_id="216",
         severity="Warn",
     )
+
+
+def check_enc_combinations(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> list[StepResult]:
+    """Checks 244 and 245: Validate ENC field combinations.
+
+    244: Flag rows not matching valid combination rules.
+    245: Flag EncType groups exceeding rate threshold for invalid combos.
+
+    Returns one StepResult for check 244, plus one per EncType threshold test for 245.
+    """
+    if schema.table_key != "encounter":
+        return []
+
+    required_cols = {"EncType", "DDate", "Discharge_Disposition", "Discharge_Status"}
+
+    all_rows: list[pl.DataFrame] = []
+    for chunk in chunks:
+        if required_cols.issubset(set(chunk.columns)):
+            all_rows.append(chunk.select(list(required_cols)))
+
+    if not all_rows:
+        return []
+
+    combined = pl.concat(all_rows)
+    total_rows = combined.height
+
+    # Derive ddate_state column
+    combined = combined.with_columns(
+        pl.when(pl.col("DDate").is_null())
+        .then(pl.lit("Null"))
+        .otherwise(pl.lit("Present"))
+        .alias("_ddate_state")
+    )
+
+    # Check each row against combination rules
+    # Build a boolean column: True if row is INVALID
+    invalid_mask = pl.lit(False)
+    for enc_type, (ddate_req, disp_req, status_req) in ENC_COMBINATION_RULES.items():
+        type_match = pl.col("EncType") == enc_type
+        violation = pl.lit(False)
+        if ddate_req:
+            violation = violation | (pl.col("_ddate_state") == "Null")
+        if disp_req:
+            violation = violation | pl.col("Discharge_Disposition").is_null()
+        if status_req:
+            violation = violation | pl.col("Discharge_Status").is_null()
+        invalid_mask = invalid_mask | (type_match & violation)
+
+    # Also flag unknown EncType values
+    known_types = list(ENC_COMBINATION_RULES.keys())
+    invalid_mask = invalid_mask | ~pl.col("EncType").is_in(known_types)
+
+    combined = combined.with_columns(invalid_mask.alias("_invalid"))
+    invalid_rows = combined.filter(pl.col("_invalid"))
+
+    # Check 244: per-row invalid combos
+    n_failed_244 = invalid_rows.height
+    n_passed_244 = total_rows - n_failed_244
+
+    failing_244 = None
+    if n_failed_244 > 0:
+        failing_244 = invalid_rows.drop("_ddate_state", "_invalid").head(max_failing_rows)
+
+    results: list[StepResult] = [
+        StepResult(
+            step_index=-1,
+            assertion_type="enc_combinations",
+            column="EncType, DDate, Discharge_Disposition, Discharge_Status",
+            description="Valid ENC field combination (check 244)",
+            n_passed=n_passed_244,
+            n_failed=n_failed_244,
+            failing_rows=failing_244,
+            check_id="244",
+            severity="Fail",
+        )
+    ]
+
+    # Check 245: rate threshold per EncType
+    for enc_type, threshold in ENC_RATE_THRESHOLDS.items():
+        type_rows = combined.filter(pl.col("EncType") == enc_type)
+        type_total = type_rows.height
+        if type_total == 0:
+            continue
+
+        type_invalid = type_rows.filter(pl.col("_invalid")).height
+        rate = type_invalid / type_total
+
+        if rate > threshold:
+            n_failed = type_invalid
+            n_passed = type_total - type_invalid
+        else:
+            n_failed = 0
+            n_passed = type_total
+
+        results.append(
+            StepResult(
+                step_index=-1,
+                assertion_type="enc_combination_rate",
+                column=f"EncType={enc_type}",
+                description=f"{enc_type} invalid combo rate {'>' if rate > threshold else '<='} {threshold:.0%} (check 245)",
+                n_passed=n_passed,
+                n_failed=n_failed,
+                failing_rows=None,
+                check_id="245",
+                severity="Fail",
+            )
+        )
+
+    return results

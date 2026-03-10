@@ -1,13 +1,13 @@
 # Schemas Domain
 
-Last verified: 2026-03-09
+Last verified: 2026-03-10
 
 ## Purpose
 Parses the upstream SCDM specification into typed data models and builds pointblank validation plans from them. This is the single source of truth for what constitutes a valid SCDM table.
 
 ## Contracts
-- **Exposes**: `get_schema(table_key) -> TableSchema`, `list_table_keys()`, `build_validation(schema, df) -> Validate`, `parse_spec() -> list[TableSchema]`
-- **Guarantees**: Lazy-loaded registry caches parsed schemas. All 19 SCDM tables are parsed from `tables_documentation.json`. `build_validation` produces a pointblank `Validate` object with nullability, enum, length, and conditional rules.
+- **Exposes**: `get_schema(table_key) -> TableSchema`, `list_table_keys()`, `build_validation(schema, df) -> Validate`, `parse_spec() -> list[TableSchema]`, `ENC_COMBINATION_RULES`, `ENC_RATE_THRESHOLDS`, `is_valid_enc_combination()`
+- **Guarantees**: Lazy-loaded registry caches parsed schemas. All 19 SCDM tables are parsed from `tables_documentation.json`. `build_validation` produces a pointblank `Validate` object with nullability, enum, length, and conditional rules. ENC combination rules define valid field combinations per EncType for checks 244/245.
 - **Expects**: `tables_documentation.json` is present and structurally valid. pointblank is installed.
 
 ## Dependencies
@@ -30,3 +30,4 @@ Parses the upstream SCDM specification into typed data models and builds pointbl
 - `parser.py` - JSON spec parser
 - `validation.py` - pointblank validation builder
 - `custom_rules.py` - User-provided rule extension loader
+- `checks.py` - L1 check registry, L2 date ordering defs, L2 ENC combination rules and thresholds

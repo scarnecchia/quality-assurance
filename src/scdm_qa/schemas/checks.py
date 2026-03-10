@@ -90,3 +90,62 @@ DATE_ORDERING_DEFS: tuple[DateOrderingDef, ...] = (
 def get_date_ordering_checks_for_table(table_key: str) -> tuple[DateOrderingDef, ...]:
     """Return date ordering check definitions for a given table."""
     return tuple(d for d in DATE_ORDERING_DEFS if d.table_key == table_key)
+
+
+# Check 244/245: Valid ENC field combinations
+# Source: SAS lkp_enc_l2 (96 rows)
+#
+# The valid combination rules are defined per EncType:
+# - IP (Inpatient): DDate Present required, Discharge_Disposition required, Discharge_Status required
+# - IS (Institutional Stay): DDate Present required, Discharge_Disposition required, Discharge_Status required
+# - ED (Emergency Department): DDate Present or Null, Discharge_Disposition optional, Discharge_Status optional
+# - AV (Ambulatory Visit): DDate Null expected, Discharge_Disposition Null expected, Discharge_Status Null expected
+# - OA (Other Ambulatory): DDate Null expected, Discharge_Disposition Null expected, Discharge_Status Null expected
+
+# Simplified rules (derived from SAS lkp_enc_l2 analysis):
+# Each tuple: (EncType, ddate_required, discharge_disposition_required, discharge_status_required)
+ENC_COMBINATION_RULES: dict[str, tuple[bool, bool, bool]] = {
+    "IP": (True, True, True),     # DDate, Disposition, Status all required
+    "IS": (True, True, True),     # DDate, Disposition, Status all required
+    "ED": (False, False, False),  # All optional
+    "AV": (False, False, False),  # All optional (DDate/disposition/status should be null)
+    "OA": (False, False, False),  # All optional
+}
+
+# Check 245 rate thresholds per EncType
+# Source: SAS lkp_rate_threshold
+# Each EncType has a threshold for what % of invalid combos triggers a flag.
+# Defaults below are conservative estimates pending SAS reference confirmation.
+ENC_RATE_THRESHOLDS: dict[str, float] = {
+    "IP": 0.05,
+    "IS": 0.05,
+    "ED": 0.10,
+    "AV": 0.10,
+    "OA": 0.10,
+}
+
+
+def is_valid_enc_combination(
+    enc_type: str,
+    ddate_state: str,
+    discharge_disposition: str | None,
+    discharge_status: str | None,
+) -> bool:
+    """Check if an ENC row matches valid combination rules.
+
+    Returns True if the combination is valid.
+    """
+    rules = ENC_COMBINATION_RULES.get(enc_type)
+    if rules is None:
+        return False  # Unknown EncType
+
+    ddate_required, disp_required, status_required = rules
+
+    if ddate_required and ddate_state == "Null":
+        return False
+    if disp_required and discharge_disposition is None:
+        return False
+    if status_required and discharge_status is None:
+        return False
+
+    return True

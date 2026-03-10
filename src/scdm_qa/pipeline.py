@@ -17,6 +17,7 @@ from scdm_qa.schemas.custom_rules import load_custom_rules
 from scdm_qa.validation.global_checks import (
     check_cause_of_death,
     check_date_ordering,
+    check_enc_combinations,
     check_enrollment_gaps,
     check_not_populated,
     check_overlapping_spans,
@@ -209,6 +210,15 @@ def _process_table(
         )
         if gaps_step is not None:
             global_steps.append(gaps_step)
+
+    # L2 checks: ENC field combinations (checks 244, 245)
+    if schema.table_key == "encounter":
+        enc_combo_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        enc_combo_steps = check_enc_combinations(
+            schema, enc_combo_reader.chunks(),
+            max_failing_rows=config.max_failing_rows,
+        )
+        global_steps.extend(enc_combo_steps)
 
     if global_steps:
         all_steps = list(validation_result.steps) + global_steps
