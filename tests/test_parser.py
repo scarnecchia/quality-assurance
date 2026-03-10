@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scdm_qa.schemas.parser import parse_spec
 
 
