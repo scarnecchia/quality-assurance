@@ -6,6 +6,7 @@ from typing import Iterator, TypedDict
 import polars as pl
 import structlog
 
+from scdm_qa.schemas.checks import get_not_populated_checks_for_table
 from scdm_qa.schemas.models import TableSchema
 from scdm_qa.validation.results import StepResult
 
@@ -222,3 +223,53 @@ def _is_sorted_boundary(
         if last_val > first_val:
             return False
     return True  # equal is OK
+
+
+def check_not_populated(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+) -> list[StepResult]:
+    """Check 111: Detect columns that are entirely null across all chunks.
+
+    Returns one StepResult per target column defined in the check registry.
+    """
+    check_defs = get_not_populated_checks_for_table(schema.table_key)
+    if not check_defs:
+        return []
+
+    target_columns = [c.column for c in check_defs]
+    non_null_counts: dict[str, int] = {col: 0 for col in target_columns}
+    total_rows = 0
+
+    for chunk in chunks:
+        total_rows += chunk.height
+        for col_name in target_columns:
+            if col_name in chunk.columns:
+                non_null_counts[col_name] += chunk[col_name].drop_nulls().len()
+
+    results: list[StepResult] = []
+    for check_def in check_defs:
+        count = non_null_counts.get(check_def.column, 0)
+        if count == 0:
+            # Column is entirely null — not populated
+            n_failed = total_rows
+            n_passed = 0
+        else:
+            n_failed = 0
+            n_passed = total_rows
+
+        results.append(
+            StepResult(
+                step_index=-1,
+                assertion_type="not_populated",
+                column=check_def.column,
+                description=f"{check_def.column} populated (check {check_def.check_id})",
+                n_passed=n_passed,
+                n_failed=n_failed,
+                failing_rows=None,
+                check_id=check_def.check_id,
+                severity=check_def.severity,
+            )
+        )
+
+    return results
