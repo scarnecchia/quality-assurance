@@ -1,8 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TypedDict
 
 import jinja2
+
+
+class ReportSummary(TypedDict):
+    table_key: str
+    table_name: str
+    filename: str
+    total_rows: int
+    step_count: int
+    total_failures: int
+    status: str
+    status_class: str
+
 
 _INDEX_TEMPLATE = """\
 <!DOCTYPE html>
@@ -55,7 +68,7 @@ _INDEX_TEMPLATE = """\
 
 def save_index(
     output_dir: Path,
-    report_summaries: list[dict],
+    report_summaries: list[ReportSummary],
 ) -> Path:
     template = jinja2.Template(_INDEX_TEMPLATE)
     html = template.render(
@@ -73,7 +86,7 @@ def make_report_summary(
     total_rows: int,
     step_count: int,
     total_failures: int,
-) -> dict:
+) -> ReportSummary:
     if total_failures == 0:
         status = "PASS"
         status_class = "pass"

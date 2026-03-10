@@ -117,25 +117,6 @@ wheels = [
 ]
 
 [[package]]
-name = "css-inline"
-version = "0.20.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e6/38/3f4a093c6d4cd07a231855eb3a42366803acb4bb5469c0ca747dbc54b38f/css_inline-0.20.0.tar.gz", hash = "sha256:9ae6e9bbbe0b355025332cddd10e06c8aaf63882387b77ffb88555f00f57e69e", size = 72246, upload-time = "2026-02-07T12:15:59.88Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/cc/8af945430accb200043b84234228a1dc9686d798cf82a2d2c219f75bb1bc/css_inline-0.20.0-cp39-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:443ff39befe2b0b09057cf4435e3f1b571d4ca24f0177a864c5f3632465a15db", size = 3597274, upload-time = "2026-02-07T12:15:36.94Z" },
-    { url = "https://files.pythonhosted.org/packages/50/fd/5f1dc7439d2e7388ace154f3f17912397a060bb9cb653d24465a95b108e1/css_inline-0.20.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:75068ad2d6cf35ca1d1eaa4a2949a4bc319af27370a5ab5f88a6ba7014225863", size = 1846962, upload-time = "2026-02-07T12:15:38.511Z" },
-    { url = "https://files.pythonhosted.org/packages/33/77/d08129f399623a3adcfeeec830ed7a5e74ddd44b844e18bbd9554542754b/css_inline-0.20.0-cp39-abi3-manylinux_2_12_i686.manylinux2010_i686.whl", hash = "sha256:729d2fe6c6df7ba8f9d92fd20cbb359f6ba3a08edfc6253bd63bf33c9ea085bd", size = 1857696, upload-time = "2026-02-07T12:15:39.812Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/4e/820e7db2b2e70b6a3b583e3d3411441d56719e092d62eca49d5d015ee7af/css_inline-0.20.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:85f374306c002d73e7615b3e926d488ed9955f966bb61efa66ac8091e89f2e49", size = 1949584, upload-time = "2026-02-07T12:15:41.632Z" },
-    { url = "https://files.pythonhosted.org/packages/1a/26/af4707420936be17ccffaf19083337b12576d4ee94d8b101672fa18a3242/css_inline-0.20.0-cp39-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:c2b320cd22c4c53ffc8f255dc9374fcc7135f54d6b66348f4b321386bb031999", size = 1880455, upload-time = "2026-02-07T12:15:43.402Z" },
-    { url = "https://files.pythonhosted.org/packages/ea/3c/11e053a3ad7267b8e82c85494e9bf06ad6f7e96dc04aa754ff17f12a8f8f/css_inline-0.20.0-cp39-abi3-manylinux_2_24_armv7l.whl", hash = "sha256:7eb7a7202ce09a14bafbb9713e10710d944ca4f1b61d40681563036d27f211e0", size = 1749177, upload-time = "2026-02-07T12:15:45.314Z" },
-    { url = "https://files.pythonhosted.org/packages/70/b2/74bdb0fb3414b079d5f4ae310c76c8967ff85d470a1bb7a0d90ddebd3fd9/css_inline-0.20.0-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:6153ce79d3a20c5d0b99e469137072fab78d2046dcc23c0bd7148acbc08630f2", size = 2068696, upload-time = "2026-02-07T12:15:46.872Z" },
-    { url = "https://files.pythonhosted.org/packages/e7/63/7c3b321eefb832460e964f1485b09bacf46d0834d855d26373755b457267/css_inline-0.20.0-cp39-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:dfbb243bdde36ae5b0d0816f7af6cce0eadd2b8e0975f3b6981843bcdb70d299", size = 1974875, upload-time = "2026-02-07T12:15:48.23Z" },
-    { url = "https://files.pythonhosted.org/packages/d1/bf/71b3db9af6cf5b08f222442e6358088bef2a1ebc063d069731207e4cd0f8/css_inline-0.20.0-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a06da4a139bbe868a83df6b05659d26b2fec8e3b4f9ce3e95c78dfcbf5ae3af6", size = 2191017, upload-time = "2026-02-07T12:15:49.48Z" },
-    { url = "https://files.pythonhosted.org/packages/fb/f2/95e57a8cc0ae4772a921e0ff1f5c588c6d1a421a32271a86c22d16f9c94a/css_inline-0.20.0-cp39-abi3-win32.whl", hash = "sha256:714bfc10af6f7e4e81955bd1947296329b94aef3d64fcb93bd8c46d82a664468", size = 1598475, upload-time = "2026-02-07T12:15:51.935Z" },
-    { url = "https://files.pythonhosted.org/packages/fd/3d/fe0475eb823de10e82834bb6e8b3109d12b7055564befda45fd78cf03581/css_inline-0.20.0-cp39-abi3-win_amd64.whl", hash = "sha256:a1f7bacfb8ad70582b1e92a9102c33badee3e955e7a164716bec393644c29acd", size = 1905692, upload-time = "2026-02-07T12:15:53.786Z" },
-]
-
-[[package]]
 name = "duckdb"
 version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -609,7 +590,6 @@ name = "scdm-qa"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "css-inline" },
     { name = "great-tables" },
     { name = "jinja2" },
     { name = "pointblank" },
@@ -631,7 +611,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "css-inline", specifier = ">=0.14,<1" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1,<2" },
     { name = "great-tables", specifier = ">=0.21,<1" },
     { name = "jinja2", specifier = ">=3,<4" },

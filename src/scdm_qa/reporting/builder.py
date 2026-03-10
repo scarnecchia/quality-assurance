@@ -149,9 +149,9 @@ def save_table_report(
         "<body>",
         f"<h1>SCDM-QA Report: {validation_result.table_name}</h1>",
         "<h2>Validation Summary</h2>",
-        validation_gt.as_raw_html(inline_css=True),
+        validation_gt.as_raw_html(inline_css=False),
         "<h2>Data Profile</h2>",
-        profiling_gt.as_raw_html(inline_css=True),
+        profiling_gt.as_raw_html(inline_css=False),
     ]
 
     if failing_tables:
@@ -161,7 +161,7 @@ def save_table_report(
             parts.append(f"<details><summary>{label} — click to expand</summary>")
             parts.append(f'<button class="download-btn" onclick="downloadCSV(\'{table_id}\', \'{label}.csv\')">Download CSV</button>')
             parts.append(f'<div id="{table_id}">')
-            parts.append(gt.as_raw_html(inline_css=True))
+            parts.append(gt.as_raw_html(inline_css=False))
             parts.append("</div></details>")
 
     parts.extend(["</body>", "</html>"])

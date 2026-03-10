@@ -79,6 +79,26 @@ class TestSaveTableReport:
         html = path.read_text()
         assert "Failing Row" in html
 
+    def test_html_contains_placeholder_for_empty_steps(self, tmp_path: Path) -> None:
+        vr = ValidationResult(
+            table_key="demographic",
+            table_name="Demographic Table",
+            steps=(),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = _make_profiling_result()
+        path = save_table_report(tmp_path, "demographic", vr, pr)
+        html = path.read_text()
+        assert "No validation steps" in html
+
+    def test_html_contains_profiling_section(self, tmp_path: Path) -> None:
+        vr = _make_validation_result()
+        pr = _make_profiling_result()
+        path = save_table_report(tmp_path, "demographic", vr, pr)
+        html = path.read_text()
+        assert "Profile" in html or "Completeness" in html
+
 
 class TestSaveIndex:
     def test_creates_index_html(self, tmp_path: Path) -> None:
