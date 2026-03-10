@@ -350,3 +350,83 @@ def check_date_ordering(
         )
 
     return results
+
+
+def check_cause_of_death(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> list[StepResult]:
+    """Checks 236 and 237: Validate underlying cause of death records.
+
+    236: Each patient in COD must have at least one CauseType='U' record.
+    237: Each patient in COD must have at most one CauseType='U' record.
+
+    Returns two StepResults (236 first, then 237).
+    """
+    if schema.table_key != "cause_of_death":
+        return []
+
+    # Accumulate all PatID + CauseType across chunks
+    all_records: list[pl.DataFrame] = []
+    for chunk in chunks:
+        if "PatID" in chunk.columns and "CauseType" in chunk.columns:
+            all_records.append(chunk.select("PatID", "CauseType"))
+
+    if not all_records:
+        return []
+
+    combined = pl.concat(all_records)
+
+    # Count CauseType='U' records per patient
+    u_counts = (
+        combined.filter(pl.col("CauseType") == "U")
+        .group_by("PatID")
+        .agg(pl.len().alias("u_count"))
+    )
+
+    all_patients = combined.select("PatID").unique()
+    total_patients = all_patients.height
+
+    # Join to get u_count per patient (patients not in u_counts have 0)
+    patient_u = all_patients.join(u_counts, on="PatID", how="left").with_columns(
+        pl.col("u_count").fill_null(0)
+    )
+
+    # Check 236: patients with zero CauseType='U'
+    missing_u = patient_u.filter(pl.col("u_count") == 0)
+    n_failed_236 = missing_u.height
+    n_passed_236 = total_patients - n_failed_236
+    failing_236 = missing_u.head(max_failing_rows) if missing_u.height > 0 else None
+
+    # Check 237: patients with more than one CauseType='U'
+    multiple_u = patient_u.filter(pl.col("u_count") > 1)
+    n_failed_237 = multiple_u.height
+    n_passed_237 = total_patients - n_failed_237
+    failing_237 = multiple_u.head(max_failing_rows) if multiple_u.height > 0 else None
+
+    return [
+        StepResult(
+            step_index=-1,
+            assertion_type="cause_of_death",
+            column="CauseType",
+            description="Each patient has underlying cause of death (check 236)",
+            n_passed=n_passed_236,
+            n_failed=n_failed_236,
+            failing_rows=failing_236,
+            check_id="236",
+            severity="Fail",
+        ),
+        StepResult(
+            step_index=-1,
+            assertion_type="cause_of_death",
+            column="CauseType",
+            description="Each patient has at most one underlying cause of death (check 237)",
+            n_passed=n_passed_237,
+            n_failed=n_failed_237,
+            failing_rows=failing_237,
+            check_id="237",
+            severity="Fail",
+        ),
+    ]
