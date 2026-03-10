@@ -1,8 +1,10 @@
 """Cross-table validation orchestrator using DuckDB SQL engine."""
 
+# pattern: Imperative Shell
+
 from __future__ import annotations
 
-import logging
+import structlog
 import tempfile
 from pathlib import Path
 
@@ -14,7 +16,7 @@ from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.models import CrossTableCheckDef
 from scdm_qa.validation.results import StepResult
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 def run_cross_table_checks(
@@ -36,6 +38,7 @@ def run_cross_table_checks(
     results: list[StepResult] = []
     registered_views: set[str] = set()
     temp_parquet_files: list[Path] = []
+    conn: duckdb.DuckDBPyConnection | None = None
 
     try:
         conn = duckdb.connect(":memory:")
@@ -95,9 +98,14 @@ def run_cross_table_checks(
                         severity=check.severity,
                     )
                 )
-
-        conn.close()
     finally:
+        # Close connection
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception as e:
+                log.warning(f"failed to close DuckDB connection", extra={"error": str(e)})
+
         # Clean up temp parquet files
         for tmp_path in temp_parquet_files:
             try:
@@ -125,7 +133,8 @@ def _convert_sas_to_parquet(sas_path: Path, chunk_size: int = 500_000) -> Path:
     from scdm_qa.readers import create_reader
 
     reader = create_reader(sas_path, chunk_size=chunk_size)
-    tmp_path = Path(tempfile.mktemp(suffix=".parquet"))
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_file:
+        tmp_path = Path(tmp_file.name)
 
     chunks = list(reader.chunks())
     if chunks:
@@ -397,8 +406,23 @@ def _handle_length_excess(
     actual_max = conn.execute(actual_query).fetchone()[0] or 0
 
     # Get declared length from schema
-    schema = get_schema(source)
-    col_def = schema.get_column(col)
+    try:
+        schema = get_schema(source)
+        col_def = schema.get_column(col)
+    except KeyError as e:
+        log.warning(f"could not find schema for table {source}: {e}")
+        return StepResult(
+            step_index=-1,
+            assertion_type="cross_table",
+            column=col,
+            description=check.description,
+            n_passed=1,
+            n_failed=0,
+            failing_rows=None,
+            check_id=check.check_id,
+            severity=check.severity,
+        )
+
     if not col_def or col_def.length is None:
         # No length info available, pass
         return StepResult(
