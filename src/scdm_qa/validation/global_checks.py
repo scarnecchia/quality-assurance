@@ -6,7 +6,7 @@ from typing import Iterator, TypedDict
 import polars as pl
 import structlog
 
-from scdm_qa.schemas.checks import get_not_populated_checks_for_table
+from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.schemas.models import TableSchema
 from scdm_qa.validation.results import StepResult
 
@@ -269,6 +269,85 @@ def check_not_populated(
                 failing_rows=None,
                 check_id=check_def.check_id,
                 severity=check_def.severity,
+            )
+        )
+
+    return results
+
+
+def check_date_ordering(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> list[StepResult]:
+    """Check 226: Detect rows where date_a > date_b.
+
+    Rows where either date is null are skipped (not flagged).
+    Returns one StepResult per configured date pair.
+    """
+    ordering_defs = get_date_ordering_checks_for_table(schema.table_key)
+    if not ordering_defs:
+        return []
+
+    # Accumulate per-pair counts across chunks
+    pair_failed: dict[str, int] = {}
+    pair_passed: dict[str, int] = {}
+    pair_failing_rows: dict[str, list[pl.DataFrame]] = {}
+    pair_failing_count: dict[str, int] = {}
+    total_rows = 0
+
+    for pair_def in ordering_defs:
+        key = f"{pair_def.date_a}>{pair_def.date_b}"
+        pair_failed[key] = 0
+        pair_passed[key] = 0
+        pair_failing_rows[key] = []
+        pair_failing_count[key] = 0
+
+    for chunk in chunks:
+        total_rows += chunk.height
+        for pair_def in ordering_defs:
+            if pair_def.date_a not in chunk.columns or pair_def.date_b not in chunk.columns:
+                continue
+
+            key = f"{pair_def.date_a}>{pair_def.date_b}"
+
+            # Filter to rows where both dates are non-null
+            both_present = chunk.filter(
+                pl.col(pair_def.date_a).is_not_null() & pl.col(pair_def.date_b).is_not_null()
+            )
+
+            violations = both_present.filter(
+                pl.col(pair_def.date_a) > pl.col(pair_def.date_b)
+            )
+
+            pair_failed[key] += violations.height
+            pair_passed[key] += both_present.height - violations.height
+
+            if violations.height > 0 and pair_failing_count[key] < max_failing_rows:
+                remaining = max_failing_rows - pair_failing_count[key]
+                sample = violations.head(remaining)
+                pair_failing_rows[key].append(sample)
+                pair_failing_count[key] += sample.height
+
+    results: list[StepResult] = []
+    for pair_def in ordering_defs:
+        key = f"{pair_def.date_a}>{pair_def.date_b}"
+        failing = None
+        if pair_failing_rows[key]:
+            failing = pl.concat(pair_failing_rows[key])
+
+        results.append(
+            StepResult(
+                step_index=-1,
+                assertion_type="date_ordering",
+                column=f"{pair_def.date_a}, {pair_def.date_b}",
+                description=f"{pair_def.description} (check {pair_def.check_id})",
+                n_passed=pair_passed[key],
+                n_failed=pair_failed[key],
+                failing_rows=failing,
+                check_id=pair_def.check_id,
+                severity=pair_def.severity,
             )
         )
 
