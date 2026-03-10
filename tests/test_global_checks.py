@@ -281,6 +281,13 @@ class TestNotPopulated:
         # Get check defs to verify severity values
         check_defs = get_not_populated_checks_for_table("demographic")
 
+        # Explicitly assert expected severity values from registry
+        imputed_hispanic_def = next(c for c in check_defs if c.column == "ImputedHispanic")
+        imputed_race_def = next(c for c in check_defs if c.column == "ImputedRace")
+        assert imputed_hispanic_def.severity == "Note"
+        assert imputed_race_def.severity == "Note"
+
+        # Verify results match the registry definitions
         for result in results:
             check_def = next(c for c in check_defs if c.column == result.column)
             assert result.severity == check_def.severity
