@@ -160,8 +160,8 @@ class TestCodeChecksParser:
         format_checks, length_checks = load_code_checks()
         assert isinstance(format_checks, tuple)
         assert isinstance(length_checks, tuple)
-        assert len(format_checks) > 0
-        assert len(length_checks) > 0
+        assert len(format_checks) == 14
+        assert len(length_checks) == 8
 
     def test_all_format_checks_are_correct_type(self):
         """All items in format_checks tuple are FormatCheckDef."""
@@ -181,6 +181,7 @@ class TestCodeChecksParser:
         """get_format_checks_for_table returns only diagnosis rules."""
         checks = get_format_checks_for_table("diagnosis")
         assert isinstance(checks, tuple)
+        assert len(checks) == 6
         for check in checks:
             assert check.table_key == "diagnosis"
 
@@ -193,6 +194,7 @@ class TestCodeChecksParser:
         """get_length_checks_for_table returns only procedure rules."""
         checks = get_length_checks_for_table("procedure")
         assert isinstance(checks, tuple)
+        assert len(checks) == 5
         for check in checks:
             assert check.table_key == "procedure"
 
@@ -210,18 +212,12 @@ class TestCodeChecksParser:
         # Monkeypatch the code_checks module to use our bad file
         import scdm_qa.schemas.code_checks as cc_module
 
-        original_spec_path = cc_module._SPEC_PATH
-
-        # Temporarily replace the spec path
         monkeypatch.setattr(cc_module, "_SPEC_PATH", bad_json)
         monkeypatch.setattr(cc_module, "_FORMAT_CHECKS", None)
         monkeypatch.setattr(cc_module, "_LENGTH_CHECKS", None)
 
-        try:
-            with pytest.raises(ConfigError):
-                cc_module.load_code_checks()
-        finally:
-            monkeypatch.setattr(cc_module, "_SPEC_PATH", original_spec_path)
+        with pytest.raises(ConfigError):
+            cc_module.load_code_checks()
 
     def test_format_check_fields_populated_correctly(self):
         """Format check fields are populated correctly from JSON."""
