@@ -55,8 +55,8 @@ class ValidationAccumulator:
                 )
 
             accum = self._steps[step_index]
-            accum.n_passed += n_passed.get(step_index, 0)
-            accum.n_failed += n_failed.get(step_index, 0)
+            accum.n_passed += n_passed.get(step_index, 0) or 0
+            accum.n_failed += n_failed.get(step_index, 0) or 0
 
             if step_index in extracts and accum.failing_rows_count < self._max_failing_rows:
                 extract = extracts[step_index]

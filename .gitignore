@@ -41,3 +41,5 @@ htmlcov/
 *.swo
 *~
 .DS_Store
+
+/qa-reports/

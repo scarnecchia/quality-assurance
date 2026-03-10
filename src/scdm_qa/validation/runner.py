@@ -77,7 +77,8 @@ def run_validation(
 
         extracts: dict[int, pl.DataFrame] = {}
         for step_idx in n_failed:
-            if n_failed[step_idx] > 0:
+            failed_count = n_failed[step_idx]
+            if failed_count is not None and failed_count > 0:
                 extract = result.get_data_extracts(i=step_idx, frame=True)
                 if extract is not None and hasattr(extract, "height") and extract.height > 0:
                     extracts[step_idx] = extract

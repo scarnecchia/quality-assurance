@@ -1,0 +1,31 @@
+# scdm-qa configuration
+#
+# Map SCDM table names to data file paths (Parquet or SAS7BDAT).
+# Only tables listed here will be validated.
+
+[tables]
+demographic = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/demographic.parquet"
+enrollment = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/enrollment.parquet"
+encounter = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/encounter.parquet"
+diagnosis = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/diagnosis.parquet"
+dispensing = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/dispensing.parquet"
+procedure = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/procedure.parquet"
+# death = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/death.parquet"
+# facility = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/facility.parquet"
+# provider = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/provider.parquet"
+# vital_signs = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/vital_signs.parquet"
+# lab_results = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/lab_results.parquet"
+# mother_infant_linkage = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/mother_infant_linkage.parquet"
+# cause_of_death = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/cause_of_death.parquet"
+# prescribing = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/prescribing.parquet"
+# inpatient_pharmacy = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/inpatient_pharmacy.parquet"
+# inpatient_transfusion = "/Users/scarndp/dev/numina-systems/scdm-prepare/output/inpatient_transfusion.parquet"
+
+[options]
+output_dir = "./qa-reports"
+chunk_size = 500000
+max_failing_rows = 500
+error_threshold = 0.05
+# custom_rules_dir = "./custom_rules"
+log_file = "./scdm-qa.log"
+# verbose = false
