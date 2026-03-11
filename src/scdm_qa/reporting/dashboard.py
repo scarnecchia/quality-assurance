@@ -107,4 +107,16 @@ def save_dashboard(
     index_path = output_dir / "index.html"
     index_path.write_text(html, encoding="utf-8")
 
+    # Render detail pages
+    for table_key, table_data in run_data["tables"].items():
+        detail_json = json.dumps(table_data)
+        table_name = table_data["validation"]["table_name"]
+        detail_html = _render_page(
+            "detail.html",
+            page_title=table_name,
+            dashboard_json=detail_json,
+        )
+        detail_path = output_dir / f"{table_key}.html"
+        detail_path.write_text(detail_html, encoding="utf-8")
+
     return output_dir
