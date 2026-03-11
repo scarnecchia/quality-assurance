@@ -10,6 +10,8 @@ Tests verify:
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -671,14 +673,23 @@ class TestCrossTableReporting:
             index_path = config.output_dir / "index.html"
             assert index_path.exists(), f"Index file {index_path} should exist"
 
-            # Verify the index contains cross-table entry
+            # Verify the index contains cross-table entry in JSON
             html = index_path.read_text()
             assert "Cross-Table Checks" in html
-            assert "cross_table.html" in html
-            assert "1" in html  # total_failures count
+
+            # Verify cross_table entry in embedded JSON
+            match = re.search(
+                r'<script type="application/json" id="dashboard-data">(.*?)</script>',
+                html, re.DOTALL,
+            )
+            assert match, "dashboard-data script tag should be present"
+            data = json.loads(match.group(1))
+            assert "cross_table" in data["tables"]
+            # Verify failure count is present
+            assert data["tables"]["cross_table"]["validation"]["steps"][0]["n_failed"] == 1
 
     def test_cross_table_no_profiling_section(self, tmp_path: Path) -> None:
-        """AC1.9: Cross-table report should not contain profiling section."""
+        """AC1.9: Cross-table report should have empty profiling data."""
         config = self._make_minimal_config(tmp_path)
 
         with patch("scdm_qa.pipeline._process_table") as mock_process, \
@@ -699,9 +710,14 @@ class TestCrossTableReporting:
 
             outcomes = run_pipeline(config)
 
-            # Verify cross_table.html does not contain profiling
+            # Verify cross_table.html profiling columns are empty in JSON
             report_path = config.output_dir / "cross_table.html"
             html = report_path.read_text()
 
-            # Should not have a Profile section
-            assert "<h2>Data Profile</h2>" not in html
+            match = re.search(
+                r'<script type="application/json" id="dashboard-data">(.*?)</script>',
+                html, re.DOTALL,
+            )
+            assert match, "dashboard-data script tag should be present"
+            data = json.loads(match.group(1))
+            assert data["profiling"]["columns"] == []

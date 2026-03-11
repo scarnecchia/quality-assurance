@@ -1,13 +1,13 @@
 # SCDM Quality Assurance
 
-Last verified: 2026-03-10
+Last verified: 2026-03-11
 
 ## Tech Stack
 - Language: Python 3.12+
 - CLI: Typer
 - Data: Polars (DataFrames), pointblank (validation rules)
 - Formats: Parquet (pyarrow), SAS7BDAT (pyreadstat)
-- Reporting: Jinja2, great-tables
+- Reporting: Jinja2, vendored Tabulator + Plotly (self-contained HTML dashboard)
 - Logging: structlog
 - Build: uv (uv_build backend)
 - Testing: pytest
@@ -31,7 +31,7 @@ Last verified: 2026-03-10
   - `readers/` - Chunked file readers (Parquet, SAS) behind a Protocol
   - `validation/` - Per-chunk validation runner, accumulator, L0/L1/L2 global checks, cross-table validation engine
   - `profiling/` - Streaming column statistics accumulator
-  - `reporting/` - HTML report builder and multi-table index page
+  - `reporting/` - Dashboard report generator (serialise.py, dashboard.py, Jinja2 templates, vendored JS/CSS)
 - `tests/` - pytest tests (one file per module)
 - `docs/implementation-plans/` - Phase plans (reference only)
 
