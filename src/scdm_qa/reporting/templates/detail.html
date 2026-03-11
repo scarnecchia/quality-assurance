@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block content %}
+<a href="index.html" class="back-link">← Back to Index</a>
+
+<h1>{{ page_title }}</h1>
+
+<!-- Header stats -->
+<div class="stat-cards">
+    <div class="stat-card">
+        <div class="label">Total Rows</div>
+        <div class="value" id="stat-total-rows">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Chunks Processed</div>
+        <div class="value" id="stat-chunks">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Pass Rate</div>
+        <div class="value" id="stat-pass-rate">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Total Checks</div>
+        <div class="value" id="stat-checks">—</div>
+    </div>
+</div>
+
+<!-- Validation checks section -->
+<div class="section">
+    <h2>Validation Checks</h2>
+    <button class="download-btn" id="download-validation-csv">Download CSV</button>
+    <div id="validation-table"></div>
+</div>
+
+<!-- Profiling section placeholder (Phase 5) -->
+<div class="section" id="profiling-section" style="display:none;">
+    <h2>Data Profile</h2>
+    <div id="profiling-table"></div>
+</div>
+
+<!-- Failing rows placeholder (Phase 5) -->
+<div class="section" id="failing-rows-section" style="display:none;">
+    <h2>Failing Rows</h2>
+    <div id="failing-rows-container"></div>
+</div>
+
+<!-- Embedded JSON data -->
+<script type="application/json" id="dashboard-data">{{ dashboard_json|safe }}</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var raw = document.getElementById("dashboard-data").textContent;
+    var data = JSON.parse(raw);
+    var validation = data.validation;
+    var steps = validation.steps;
+
+    // --- Header stats ---
+    var totalChecks = steps.length;
+    var passed = steps.filter(function(s) { return s.n_failed === 0; }).length;
+    var passRate = totalChecks > 0
+        ? ((passed / totalChecks) * 100).toFixed(1) + "%"
+        : "—";
+
+    document.getElementById("stat-total-rows").textContent =
+        validation.total_rows.toLocaleString();
+    document.getElementById("stat-chunks").textContent =
+        validation.chunks_processed.toLocaleString();
+    document.getElementById("stat-pass-rate").textContent = passRate;
+    document.getElementById("stat-checks").textContent = totalChecks;
+
+    // --- Validation checks table ---
+    var tableData = steps.map(function(s) {
+        return {
+            check_id: s.check_id || "—",
+            assertion_type: s.assertion_type,
+            column: s.column,
+            description: s.description,
+            n_passed: s.n_passed,
+            n_failed: s.n_failed,
+            pass_rate: (s.pass_rate * 100).toFixed(1),
+            severity: s.severity || "—"
+        };
+    });
+
+    var severityRank = { "Fail": 3, "Warn": 2, "Note": 1, "—": 0 };
+
+    var validationTable = new Tabulator("#validation-table", {
+        data: tableData,
+        layout: "fitColumns",
+        columns: [
+            {
+                title: "Check ID",
+                field: "check_id",
+                width: 100,
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Type",
+                field: "assertion_type",
+                width: 160,
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Column",
+                field: "column",
+                width: 130,
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Description",
+                field: "description",
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Passed",
+                field: "n_passed",
+                width: 90,
+                sorter: "number",
+                hozAlign: "right",
+                formatter: function(cell) {
+                    return cell.getValue().toLocaleString();
+                }
+            },
+            {
+                title: "Failed",
+                field: "n_failed",
+                width: 90,
+                sorter: "number",
+                hozAlign: "right",
+                formatter: function(cell) {
+                    var v = cell.getValue();
+                    if (v > 0) cell.getElement().classList.add("severity-fail");
+                    return v.toLocaleString();
+                }
+            },
+            {
+                title: "Pass Rate",
+                field: "pass_rate",
+                width: 100,
+                sorter: "number",
+                hozAlign: "right",
+                formatter: function(cell) {
+                    return cell.getValue() + "%";
+                }
+            },
+            {
+                title: "Severity",
+                field: "severity",
+                width: 100,
+                headerFilter: true,
+                sorter: function(a, b) {
+                    return (severityRank[a] || 0) - (severityRank[b] || 0);
+                },
+                formatter: function(cell) {
+                    var v = cell.getValue();
+                    var cls = { "Fail": "severity-fail", "Warn": "severity-warn", "Note": "severity-note" };
+                    if (cls[v]) cell.getElement().classList.add(cls[v]);
+                    return v;
+                }
+            }
+        ],
+        rowFormatter: function(row) {
+            var sev = row.getData().severity;
+            if (sev === "Fail" && row.getData().n_failed > 0) {
+                row.getElement().style.backgroundColor = "#fff5f5";
+            } else if (sev === "Warn" && row.getData().n_failed > 0) {
+                row.getElement().style.backgroundColor = "#fffbf0";
+            }
+        },
+        initialSort: [
+            { column: "severity", dir: "desc" },
+            { column: "n_failed", dir: "desc" }
+        ]
+    });
+
+    // CSV download
+    document.getElementById("download-validation-csv").addEventListener("click", function() {
+        validationTable.download("csv", "validation-checks.csv");
+    });
+})();
+</script>
+{% endblock %}
