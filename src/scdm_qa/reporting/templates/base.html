@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }} — SCDM-QA Dashboard</title>
+    <style>
+{{ tabulator_css }}
+    </style>
+    <style>
+        :root {
+            --color-pass: #28a745;
+            --color-warn: #ffc107;
+            --color-fail: #dc3545;
+            --color-note: #6c757d;
+            --color-bg: #ffffff;
+            --color-bg-alt: #f8f9fa;
+            --color-border: #dee2e6;
+            --color-text: #212529;
+            --color-text-muted: #6c757d;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            color: var(--color-text);
+            background: var(--color-bg);
+            line-height: 1.5;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 { font-size: 1.75rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--color-text); padding-bottom: 0.5rem; }
+        h2 { font-size: 1.25rem; margin: 1.5rem 0 0.75rem; }
+        .stat-cards { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        .stat-card {
+            background: var(--color-bg-alt);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            min-width: 180px;
+            flex: 1;
+        }
+        .stat-card .label { font-size: 0.85rem; color: var(--color-text-muted); }
+        .stat-card .value { font-size: 1.75rem; font-weight: 700; }
+        .charts-row { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        .chart-container { flex: 1; min-width: 300px; }
+        .severity-fail { color: var(--color-fail); }
+        .severity-warn { color: var(--color-warn); }
+        .severity-note { color: var(--color-note); }
+        .severity-pass { color: var(--color-pass); }
+        .back-link { display: inline-block; margin-bottom: 1rem; color: #0066cc; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .section { margin-bottom: 2rem; }
+        .download-btn {
+            display: inline-block;
+            margin: 0.5rem 0;
+            padding: 0.4rem 0.8rem;
+            background: var(--color-bg-alt);
+            border: 1px solid var(--color-border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .download-btn:hover { background: var(--color-border); }
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+            padding: 0.5rem;
+            background: var(--color-bg-alt);
+            border: 1px solid var(--color-border);
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+        }
+        .collapsible-header::before { content: "▶ "; }
+        .collapsible-header.open::before { content: "▼ "; }
+        .collapsible-body { display: none; padding: 0.5rem 0; }
+        .collapsible-body.open { display: block; }
+        .low-completeness { background-color: #fff3f3; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    {% block content %}{% endblock %}
+
+    <script>
+{{ tabulator_js }}
+    </script>
+    <script>
+{{ plotly_js }}
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
