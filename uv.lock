@@ -634,7 +634,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
-    { name = "great-tables" },
     { name = "jinja2" },
     { name = "pointblank" },
     { name = "polars" },
@@ -652,7 +651,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1,<2" },
-    { name = "great-tables", specifier = ">=0.21,<1" },
     { name = "jinja2", specifier = ">=3,<4" },
     { name = "pointblank", specifier = ">=0.6,<1" },
     { name = "polars", specifier = ">=1.38,<2" },
