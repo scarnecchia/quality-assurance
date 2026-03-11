@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import copy
+import json
 from pathlib import Path
 from importlib.resources import files
 
 import jinja2
 
 from scdm_qa.profiling.results import ProfilingResult
+from scdm_qa.reporting.serialise import serialise_run
 from scdm_qa.validation.results import ValidationResult
 
 
@@ -68,17 +71,40 @@ def save_dashboard(
     *,
     max_failing_rows: int = 500,
 ) -> Path:
-    """Render the full dashboard. Implemented in Phase 3+.
+    """Render the full dashboard index page with scorecard, charts, and summary grid.
+
+    Generates the index.html page which displays:
+    - Stat cards for total checks, pass rate, and total failures
+    - Donut chart of results by severity
+    - Bar chart of pass rate per table
+    - Tabulator summary grid with navigation to detail pages
+
+    The JSON data is embedded in the page with failing_rows stripped to keep
+    file size small (failing_rows are shown only on detail pages).
 
     Args:
         output_dir: Directory where dashboard HTML will be written
         results: List of (ValidationResult, ProfilingResult) tuples
-        max_failing_rows: Maximum number of failing rows to display
+        max_failing_rows: Maximum number of failing rows to display (used for detail pages)
 
     Returns:
-        Path to the generated dashboard index
-
-    Raises:
-        NotImplementedError: This function is implemented in Phase 3+
+        Path to the output directory (where index.html was written)
     """
-    raise NotImplementedError("Dashboard rendering not yet implemented")
+    # Serialise the full run data
+    run_data = serialise_run(results, max_failing_rows=max_failing_rows)
+
+    # Create a summary-only version by stripping failing_rows for the index page
+    index_data = copy.deepcopy(run_data)
+    for table_data in index_data["tables"].values():
+        for step in table_data["validation"]["steps"]:
+            step["failing_rows"] = []
+
+    index_json = json.dumps(index_data)
+
+    # Render the index page
+    output_dir.mkdir(parents=True, exist_ok=True)
+    html = _render_page("index.html", page_title="Index", dashboard_json=index_json)
+    index_path = output_dir / "index.html"
+    index_path.write_text(html, encoding="utf-8")
+
+    return output_dir
