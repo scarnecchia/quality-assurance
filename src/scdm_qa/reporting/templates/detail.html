@@ -183,6 +183,126 @@
     document.getElementById("download-validation-csv").addEventListener("click", function() {
         validationTable.download("csv", "validation-checks.csv");
     });
+
+    // --- Profiling section ---
+    var profiling = data.profiling;
+    if (profiling && profiling.columns && profiling.columns.length > 0) {
+        document.getElementById("profiling-section").style.display = "block";
+
+        var profilingData = profiling.columns.map(function(col) {
+            return {
+                name: col.name,
+                col_type: col.col_type,
+                completeness: col.completeness_pct,
+                distinct_count: col.distinct_count,
+                min_value: col.min_value || "—",
+                max_value: col.max_value || "—"
+            };
+        });
+
+        new Tabulator("#profiling-table", {
+            data: profilingData,
+            layout: "fitColumns",
+            columns: [
+                { title: "Column", field: "name", headerFilter: true, sorter: "string" },
+                { title: "Type", field: "col_type", width: 100, headerFilter: true, sorter: "string" },
+                {
+                    title: "Completeness",
+                    field: "completeness",
+                    width: 120,
+                    sorter: "number",
+                    hozAlign: "right",
+                    formatter: function(cell) {
+                        var v = cell.getValue();
+                        if (v < 95) {
+                            cell.getElement().classList.add("low-completeness");
+                        }
+                        return v.toFixed(1) + "%";
+                    }
+                },
+                {
+                    title: "Distinct",
+                    field: "distinct_count",
+                    width: 100,
+                    sorter: "number",
+                    hozAlign: "right",
+                    formatter: function(cell) {
+                        return cell.getValue().toLocaleString();
+                    }
+                },
+                { title: "Min", field: "min_value", width: 120, sorter: "string" },
+                { title: "Max", field: "max_value", width: 120, sorter: "string" }
+            ]
+        });
+    }
+
+    // --- Failing rows sections ---
+    var failingSteps = steps.filter(function(s) {
+        return s.n_failed > 0 && s.failing_rows && s.failing_rows.length > 0;
+    });
+
+    if (failingSteps.length > 0) {
+        document.getElementById("failing-rows-section").style.display = "block";
+        var container = document.getElementById("failing-rows-container");
+
+        failingSteps.forEach(function(step, idx) {
+            var checkLabel = step.check_id || ("Step " + step.step_index);
+            var sectionId = "failing-rows-" + idx;
+            var tableId = "failing-table-" + idx;
+
+            // Create collapsible section
+            var header = document.createElement("div");
+            header.className = "collapsible-header";
+            header.textContent = checkLabel + ": " + step.description +
+                " (" + step.n_failed.toLocaleString() + " failures)";
+
+            var body = document.createElement("div");
+            body.className = "collapsible-body";
+            body.id = sectionId;
+
+            // Download button
+            var downloadBtn = document.createElement("button");
+            downloadBtn.className = "download-btn";
+            downloadBtn.textContent = "Download CSV";
+            downloadBtn.id = "download-failing-" + idx;
+            body.appendChild(downloadBtn);
+
+            // Table container
+            var tableDiv = document.createElement("div");
+            tableDiv.id = tableId;
+            body.appendChild(tableDiv);
+
+            container.appendChild(header);
+            container.appendChild(body);
+
+            // Toggle collapse
+            header.addEventListener("click", function() {
+                header.classList.toggle("open");
+                body.classList.toggle("open");
+            });
+
+            // Build columns from failing row keys
+            var rows = step.failing_rows;
+            var columns = [];
+            if (rows.length > 0) {
+                columns = Object.keys(rows[0]).map(function(key) {
+                    return { title: key, field: key, headerFilter: true, sorter: "string" };
+                });
+            }
+
+            var failingTable = new Tabulator("#" + tableId, {
+                data: rows,
+                layout: "fitColumns",
+                columns: columns,
+                maxHeight: 400
+            });
+
+            // CSV download for this section
+            downloadBtn.addEventListener("click", function() {
+                failingTable.download("csv", checkLabel + "-failing-rows.csv");
+            });
+        });
+    }
 })();
 </script>
 {% endblock %}
