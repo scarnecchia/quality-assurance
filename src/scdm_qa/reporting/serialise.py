@@ -116,12 +116,10 @@ def serialise_run(
 
         # Count by severity
         for step in vr.steps:
-            if step.n_failed > 0:
-                severity = step.severity or "pass"
-                if severity in by_severity_counts:
-                    by_severity_counts[severity] += 1
-            else:
+            if step.n_failed == 0:
                 by_severity_counts["pass"] += 1
+            elif step.severity in by_severity_counts:
+                by_severity_counts[step.severity] += 1
 
     return {
         "schema_version": "1.0",

@@ -156,7 +156,7 @@ class TestSerialiseValidation:
         assert result["steps"][0]["severity"] == "Warn"
 
 
-class TestSerialiseProfileing:
+class TestSerialiseProfiling:
     def test_serialise_profiling_basic(self) -> None:
         """Test serialise_profiling produces correct structure."""
         pr = _make_profiling_result()
@@ -260,6 +260,17 @@ class TestSerialiseRun:
         result = serialise_run([(vr, pr)])
         by_severity = result["summary"]["by_severity"]
         assert by_severity["pass"] == 1
+
+    def test_serialise_run_summary_by_severity_none_severity_not_counted(self) -> None:
+        """Test that steps with n_failed > 0 but severity=None do not increment pass counter."""
+        vr = _make_validation_result(with_failures=True, check_id="101", severity=None)
+        pr = _make_profiling_result()
+        result = serialise_run([(vr, pr)])
+        by_severity = result["summary"]["by_severity"]
+        assert by_severity["Fail"] == 0
+        assert by_severity["Warn"] == 0
+        assert by_severity["Note"] == 0
+        assert by_severity["pass"] == 0
 
     def test_serialise_run_multiple_tables(self) -> None:
         """Test that multiple tables are all present in output."""
