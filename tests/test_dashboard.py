@@ -183,13 +183,12 @@ def _make_validation_result(
     )
 
 
-def _make_profiling_result(*, table_key: str = "demographic") -> ProfilingResult:
+def _make_profiling_result(
+    *, table_key: str = "demographic", columns: tuple[ColumnProfile, ...] | None = None
+) -> ProfilingResult:
     """Create a ProfilingResult with configurable fields."""
-    return ProfilingResult(
-        table_key=table_key,
-        table_name="Demographic Table" if table_key == "demographic" else f"{table_key.title()} Table",
-        total_rows=100,
-        columns=(
+    if columns is None:
+        columns = (
             ColumnProfile(
                 name="PatID",
                 col_type="Character",
@@ -200,7 +199,12 @@ def _make_profiling_result(*, table_key: str = "demographic") -> ProfilingResult
                 max_value="P100",
                 value_frequencies=None,
             ),
-        ),
+        )
+    return ProfilingResult(
+        table_key=table_key,
+        table_name="Demographic Table" if table_key == "demographic" else f"{table_key.title()} Table",
+        total_rows=100,
+        columns=columns,
     )
 
 
@@ -638,3 +642,277 @@ class TestDetailPage:
         assert isinstance(data, dict)
         assert "validation" in data
         assert "profiling" in data
+
+
+class TestDetailPageProfiling:
+    def test_profiling_section_visible_when_columns_present(self, tmp_path: Path) -> None:
+        """AC2.6: Profiling section is shown when profiling has columns."""
+        col = ColumnProfile(
+            name="PatID",
+            col_type="Character",
+            total_count=100,
+            null_count=2,
+            distinct_count=98,
+            min_value="P001",
+            max_value="P100",
+            value_frequencies=None,
+        )
+        vr = _make_validation_result(table_key="demographic", with_failures=False)
+        pr = _make_profiling_result(table_key="demographic", columns=(col,))
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Verify profiling section div exists and JS controls visibility
+        assert 'id="profiling-section"' in html
+        assert 'id="profiling-table"' in html
+        # Verify section display control code is present
+        assert 'getElementById("profiling-section").style.display = "block"' in html
+
+    def test_profiling_table_contains_column_data(self, tmp_path: Path) -> None:
+        """AC2.6: Profiling table shows all column stats correctly."""
+        col = ColumnProfile(
+            name="Age",
+            col_type="Numeric",
+            total_count=100,
+            null_count=5,
+            distinct_count=50,
+            min_value="18",
+            max_value="99",
+            value_frequencies=None,
+        )
+        vr = _make_validation_result(table_key="demographic", with_failures=False)
+        pr = _make_profiling_result(table_key="demographic", columns=(col,))
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        profiling_cols = data["profiling"]["columns"]
+        assert len(profiling_cols) == 1
+        assert profiling_cols[0]["name"] == "Age"
+        assert profiling_cols[0]["col_type"] == "Numeric"
+        assert profiling_cols[0]["completeness_pct"] == 95.0  # (100-5)/100 * 100
+        assert profiling_cols[0]["distinct_count"] == 50
+        assert profiling_cols[0]["min_value"] == "18"
+        assert profiling_cols[0]["max_value"] == "99"
+
+    def test_profiling_low_completeness_highlighted(self, tmp_path: Path) -> None:
+        """AC2.6: Completeness below 95% gets low-completeness CSS class."""
+        col = ColumnProfile(
+            name="MissingCol",
+            col_type="Character",
+            total_count=100,
+            null_count=10,  # 90% completeness
+            distinct_count=50,
+            min_value="A",
+            max_value="Z",
+            value_frequencies=None,
+        )
+        vr = _make_validation_result(table_key="demographic", with_failures=False)
+        pr = _make_profiling_result(table_key="demographic", columns=(col,))
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        col_data = data["profiling"]["columns"][0]
+        assert col_data["completeness_pct"] == 90.0
+        # Verify CSS class name is in the JS code
+        assert "low-completeness" in html
+
+    def test_profiling_section_hidden_when_empty(self, tmp_path: Path) -> None:
+        """AC2.10: When profiling has no columns (e.g., cross_table), section stays hidden."""
+        vr = ValidationResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            steps=(_make_step(check_id="201", severity="Fail"),),
+            total_rows=0,
+            chunks_processed=0,
+        )
+        pr = ProfilingResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            total_rows=0,
+            columns=(),  # Empty columns
+        )
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "cross_table.html").read_text()
+        # Verify the div exists but JS doesn't show it
+        assert 'id="profiling-section"' in html
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        assert data["profiling"]["columns"] == []
+
+    def test_profiling_multiple_columns(self, tmp_path: Path) -> None:
+        """AC2.6: Multiple columns all appear in profiling table."""
+        cols = (
+            ColumnProfile(
+                name="PatID",
+                col_type="Character",
+                total_count=100,
+                null_count=0,
+                distinct_count=100,
+                min_value="P001",
+                max_value="P100",
+                value_frequencies=None,
+            ),
+            ColumnProfile(
+                name="Age",
+                col_type="Numeric",
+                total_count=100,
+                null_count=5,
+                distinct_count=50,
+                min_value="18",
+                max_value="99",
+                value_frequencies=None,
+            ),
+        )
+        vr = _make_validation_result(table_key="demographic", with_failures=False)
+        pr = _make_profiling_result(table_key="demographic", columns=cols)
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        assert len(data["profiling"]["columns"]) == 2
+        assert data["profiling"]["columns"][0]["name"] == "PatID"
+        assert data["profiling"]["columns"][1]["name"] == "Age"
+
+
+class TestDetailPageFailingRows:
+    def test_failing_rows_section_visible_when_failures_present(self, tmp_path: Path) -> None:
+        """AC2.7: Failing rows section is shown when steps have failures."""
+        vr = _make_validation_result(table_key="demographic", with_failures=True)
+        pr = _make_profiling_result(table_key="demographic")
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Verify failing rows section div exists
+        assert 'id="failing-rows-section"' in html
+        assert 'id="failing-rows-container"' in html
+        # Verify display control code is present
+        assert 'getElementById("failing-rows-section").style.display = "block"' in html
+
+    def test_failing_rows_collapsible_headers(self, tmp_path: Path) -> None:
+        """AC2.7: Each failing section has a collapsible header."""
+        vr = _make_validation_result(table_key="demographic", with_failures=True)
+        pr = _make_profiling_result(table_key="demographic")
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Verify collapsible header CSS class and toggle code
+        assert "collapsible-header" in html
+        assert 'classList.toggle("open")' in html
+
+    def test_failing_rows_download_buttons(self, tmp_path: Path) -> None:
+        """AC2.8: Each failing row section has a CSV download button."""
+        vr = _make_validation_result(table_key="demographic", with_failures=True)
+        pr = _make_profiling_result(table_key="demographic")
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Verify download button pattern
+        assert 'download-failing-' in html
+        assert 'download("csv"' in html
+
+    def test_failing_rows_section_hidden_when_no_failures(self, tmp_path: Path) -> None:
+        """AC2.9: When all steps pass (n_failed=0), failing rows section stays hidden."""
+        vr = _make_validation_result(table_key="demographic", with_failures=False)
+        pr = _make_profiling_result(table_key="demographic")
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        # All steps should have n_failed=0
+        for step in data["validation"]["steps"]:
+            assert step["n_failed"] == 0
+        # The failing-rows-section div exists but JS doesn't show it
+        assert 'id="failing-rows-section"' in html
+
+    def test_multiple_failing_steps_have_separate_sections(self, tmp_path: Path) -> None:
+        """AC2.7: Multiple failing steps produce multiple collapsible sections."""
+        step1 = _make_step(n_passed=98, n_failed=2, check_id="122", severity="Fail")
+        step2 = StepResult(
+            step_index=2,
+            assertion_type="col_vals_between",
+            column="age",
+            description="age between 0 and 150",
+            n_passed=99,
+            n_failed=1,
+            failing_rows=pl.DataFrame({"age": [999]}),
+            check_id="456",
+            severity="Warn",
+        )
+        vr = ValidationResult(
+            table_key="test",
+            table_name="Test Table",
+            steps=(step1, step2),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = ProfilingResult(table_key="test", table_name="Test Table", total_rows=100, columns=())
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "test.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        # Both steps should be present in validation
+        assert len(data["validation"]["steps"]) == 2
+        # Both should have failing_rows
+        assert len(data["validation"]["steps"][0]["failing_rows"]) > 0
+        assert len(data["validation"]["steps"][1]["failing_rows"]) > 0
+        # JS code should iterate over failing steps and create sections
+        assert "failingSteps.forEach" in html
+        assert "collapsible-header" in html
+        # Verify the JS code pattern for creating download button IDs
+        assert 'downloadBtn.id = "download-failing-" + idx;' in html
+
+    def test_failing_rows_contains_data(self, tmp_path: Path) -> None:
+        """Verify failing_rows data is embedded and contains actual row values."""
+        failing_df = pl.DataFrame({
+            "PatID": ["P001", "P002"],
+            "ErrorMsg": ["Missing value", "Invalid code"]
+        })
+        step = StepResult(
+            step_index=1,
+            assertion_type="col_vals_not_null",
+            column="PatID",
+            description="PatID not null",
+            n_passed=98,
+            n_failed=2,
+            failing_rows=failing_df,
+            check_id="122",
+            severity="Fail",
+        )
+        vr = ValidationResult(
+            table_key="test",
+            table_name="Test Table",
+            steps=(step,),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = ProfilingResult(table_key="test", table_name="Test Table", total_rows=100, columns=())
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "test.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        failing_rows = data["validation"]["steps"][0]["failing_rows"]
+        assert len(failing_rows) == 2
+        assert failing_rows[0]["PatID"] == "P001"
+        assert failing_rows[0]["ErrorMsg"] == "Missing value"
+        assert failing_rows[1]["PatID"] == "P002"
+
+    def test_failing_rows_step_with_zero_failures_not_shown(self, tmp_path: Path) -> None:
+        """Mixed scenario: one step with failures, one without."""
+        step1 = _make_step(n_passed=98, n_failed=2, check_id="122", severity="Fail")
+        step2 = _make_step(n_passed=100, n_failed=0, check_id="456", severity=None)
+        vr = ValidationResult(
+            table_key="test",
+            table_name="Test Table",
+            steps=(step1, step2),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = ProfilingResult(table_key="test", table_name="Test Table", total_rows=100, columns=())
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "test.html").read_text()
+        # Verify the JS filtering logic is present
+        assert "steps.filter(function(s)" in html
+        assert "s.n_failed > 0 && s.failing_rows" in html
+        # step2 has no failures, so it should not be in the failing steps list
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        failing_steps = [s for s in data["validation"]["steps"] if s["n_failed"] > 0 and s["failing_rows"]]
+        assert len(failing_steps) == 1  # Only step1
