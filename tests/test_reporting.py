@@ -8,7 +8,6 @@ import polars as pl
 
 from scdm_qa.profiling.results import ColumnProfile, ProfilingResult
 from scdm_qa.reporting.dashboard import save_dashboard
-from scdm_qa.reporting.serialise import serialise_run
 from scdm_qa.validation.results import StepResult, ValidationResult
 
 
@@ -58,6 +57,38 @@ def _make_profiling_result() -> ProfilingResult:
             ),
         ),
     )
+
+
+def _make_cross_table_results(
+    *, n_failed: int = 1
+) -> tuple[ValidationResult, ProfilingResult]:
+    """Create identical cross-table VR and PR fixtures for cross-table tests."""
+    cross_table_vr = ValidationResult(
+        table_key="cross_table",
+        table_name="Cross-Table Checks",
+        steps=(
+            StepResult(
+                step_index=-1,
+                assertion_type="cross_table",
+                column="PatID",
+                description="Cross-table check",
+                n_passed=10,
+                n_failed=n_failed,
+                failing_rows=None,
+                check_id="201",
+                severity="Fail",
+            ),
+        ),
+        total_rows=0,
+        chunks_processed=0,
+    )
+    cross_table_pr = ProfilingResult(
+        table_key="cross_table",
+        table_name="Cross-Table Checks",
+        total_rows=0,
+        columns=(),
+    )
+    return cross_table_vr, cross_table_pr
 
 
 class TestSaveDashboard:
@@ -135,31 +166,7 @@ class TestSaveDashboard__CrossTable:
 
     def test_cross_table_detail_page_created(self, tmp_path: Path) -> None:
         """Cross-table results generate cross_table.html detail page."""
-        cross_table_vr = ValidationResult(
-            table_key="cross_table",
-            table_name="Cross-Table Checks",
-            steps=(
-                StepResult(
-                    step_index=-1,
-                    assertion_type="cross_table",
-                    column="PatID",
-                    description="Cross-table check",
-                    n_passed=10,
-                    n_failed=1,
-                    failing_rows=None,
-                    check_id="201",
-                    severity="Fail",
-                ),
-            ),
-            total_rows=0,
-            chunks_processed=0,
-        )
-        cross_table_pr = ProfilingResult(
-            table_key="cross_table",
-            table_name="Cross-Table Checks",
-            total_rows=0,
-            columns=(),
-        )
+        cross_table_vr, cross_table_pr = _make_cross_table_results()
         results = [(cross_table_vr, cross_table_pr)]
 
         save_dashboard(tmp_path, results)
@@ -173,31 +180,7 @@ class TestSaveDashboard__CrossTable:
 
     def test_cross_table_same_format(self, tmp_path: Path) -> None:
         """Cross-table detail page contains same Tabulator format as L1 pages."""
-        cross_table_vr = ValidationResult(
-            table_key="cross_table",
-            table_name="Cross-Table Checks",
-            steps=(
-                StepResult(
-                    step_index=-1,
-                    assertion_type="cross_table",
-                    column="PatID",
-                    description="Cross-table check",
-                    n_passed=10,
-                    n_failed=1,
-                    failing_rows=None,
-                    check_id="201",
-                    severity="Fail",
-                ),
-            ),
-            total_rows=0,
-            chunks_processed=0,
-        )
-        cross_table_pr = ProfilingResult(
-            table_key="cross_table",
-            table_name="Cross-Table Checks",
-            total_rows=0,
-            columns=(),
-        )
+        cross_table_vr, cross_table_pr = _make_cross_table_results()
         results = [(cross_table_vr, cross_table_pr)]
 
         save_dashboard(tmp_path, results)
@@ -221,31 +204,7 @@ class TestSaveDashboard__CrossTable:
 
     def test_cross_table_no_profiling(self, tmp_path: Path) -> None:
         """Cross-table detail page has empty profiling columns in JSON."""
-        cross_table_vr = ValidationResult(
-            table_key="cross_table",
-            table_name="Cross-Table Checks",
-            steps=(
-                StepResult(
-                    step_index=-1,
-                    assertion_type="cross_table",
-                    column="PatID",
-                    description="Cross-table check",
-                    n_passed=10,
-                    n_failed=0,
-                    failing_rows=None,
-                    check_id="201",
-                    severity="Fail",
-                ),
-            ),
-            total_rows=0,
-            chunks_processed=0,
-        )
-        cross_table_pr = ProfilingResult(
-            table_key="cross_table",
-            table_name="Cross-Table Checks",
-            total_rows=0,
-            columns=(),
-        )
+        cross_table_vr, cross_table_pr = _make_cross_table_results(n_failed=0)
         results = [(cross_table_vr, cross_table_pr)]
 
         save_dashboard(tmp_path, results)

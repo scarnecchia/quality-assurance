@@ -10,6 +10,8 @@ Tests verify:
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -676,8 +678,6 @@ class TestCrossTableReporting:
             assert "Cross-Table Checks" in html
 
             # Verify cross_table entry in embedded JSON
-            import json
-            import re
             match = re.search(
                 r'<script type="application/json" id="dashboard-data">(.*?)</script>',
                 html, re.DOTALL,
@@ -714,8 +714,6 @@ class TestCrossTableReporting:
             report_path = config.output_dir / "cross_table.html"
             html = report_path.read_text()
 
-            import json
-            import re
             match = re.search(
                 r'<script type="application/json" id="dashboard-data">(.*?)</script>',
                 html, re.DOTALL,
