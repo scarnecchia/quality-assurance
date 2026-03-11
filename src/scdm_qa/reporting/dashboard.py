@@ -10,14 +10,20 @@ from scdm_qa.validation.results import ValidationResult
 
 
 def _load_vendor_asset(filename: str) -> str:
-    """Load a vendor asset file from the vendor directory.
+    r"""Load a vendor asset file from the vendor directory.
 
     Args:
         filename: Name of the file to load (e.g., 'tabulator.min.js')
 
     Returns:
         The file contents as a string.
+
+    Raises:
+        ValueError: If filename contains path separators (/ or \).
     """
+    if "/" in filename or "\\" in filename:
+        msg = f"invalid vendor asset filename: {filename}"
+        raise ValueError(msg)
     return (
         files("scdm_qa.reporting") / "vendor" / filename
     ).read_text(encoding="utf-8")
