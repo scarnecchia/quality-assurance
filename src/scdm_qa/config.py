@@ -15,6 +15,8 @@ class QAConfig:
     custom_rules_dir: Path | None = None
     log_file: Path | None = None
     verbose: bool = False
+    run_l1: bool = True
+    run_l2: bool = True
 
 
 class ConfigError(Exception):
@@ -54,6 +56,13 @@ def load_config(config_path: Path) -> QAConfig:
     log_file = Path(log_file_str) if log_file_str else None
 
     verbose = options.get("verbose", False)
+    run_l1 = options.get("run_l1", True)
+    run_l2 = options.get("run_l2", True)
+
+    if not isinstance(run_l1, bool):
+        raise ConfigError(f"run_l1 must be a boolean, got: {run_l1}")
+    if not isinstance(run_l2, bool):
+        raise ConfigError(f"run_l2 must be a boolean, got: {run_l2}")
 
     if not isinstance(chunk_size, int) or chunk_size <= 0:
         raise ConfigError(f"chunk_size must be a positive integer, got: {chunk_size}")
@@ -73,4 +82,6 @@ def load_config(config_path: Path) -> QAConfig:
         custom_rules_dir=custom_rules_dir,
         log_file=log_file,
         verbose=verbose,
+        run_l1=run_l1,
+        run_l2=run_l2,
     )

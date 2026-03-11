@@ -55,61 +55,120 @@ def run_pipeline(
     outcomes: list[TableOutcome] = []
     report_summaries: list[ReportSummary] = []
 
-    for table_key, file_path in tables.items():
-        log.info("processing table", table=table_key, file=str(file_path))
-        try:
-            outcome = _process_table(
-                table_key,
-                file_path,
-                config,
-                profile_only=profile_only,
-            )
-            outcomes.append(outcome)
+    # L1: Per-table validation
+    if config.run_l1:
+        for table_key, file_path in tables.items():
+            log.info("processing table", table=table_key, file=str(file_path))
+            try:
+                outcome = _process_table(
+                    table_key,
+                    file_path,
+                    config,
+                    profile_only=profile_only,
+                )
+                outcomes.append(outcome)
 
-            if outcome.validation_result and outcome.profiling_result:
-                save_table_report(
-                    config.output_dir,
-                    table_key,
-                    outcome.validation_result,
-                    outcome.profiling_result,
-                )
-                report_summaries.append(
-                    make_report_summary(
+                if outcome.validation_result and outcome.profiling_result:
+                    save_table_report(
+                        config.output_dir,
                         table_key,
-                        outcome.validation_result.table_name,
-                        outcome.validation_result.total_rows,
-                        len(outcome.validation_result.steps),
-                        outcome.validation_result.total_failures,
+                        outcome.validation_result,
+                        outcome.profiling_result,
                     )
-                )
-            elif outcome.profiling_result:
-                # Profile-only mode: create a report with just profiling data
-                empty_vr = ValidationResult(
-                    table_key=table_key,
-                    table_name=outcome.profiling_result.table_name,
-                    steps=(),
-                    total_rows=outcome.profiling_result.total_rows,
-                    chunks_processed=0,
-                )
-                save_table_report(
-                    config.output_dir,
-                    table_key,
-                    empty_vr,
-                    outcome.profiling_result,
-                )
-                report_summaries.append(
-                    make_report_summary(
+                    report_summaries.append(
+                        make_report_summary(
+                            table_key,
+                            outcome.validation_result.table_name,
+                            outcome.validation_result.total_rows,
+                            len(outcome.validation_result.steps),
+                            outcome.validation_result.total_failures,
+                        )
+                    )
+                elif outcome.profiling_result:
+                    # Profile-only mode: create a report with just profiling data
+                    empty_vr = ValidationResult(
+                        table_key=table_key,
+                        table_name=outcome.profiling_result.table_name,
+                        steps=(),
+                        total_rows=outcome.profiling_result.total_rows,
+                        chunks_processed=0,
+                    )
+                    save_table_report(
+                        config.output_dir,
                         table_key,
-                        outcome.profiling_result.table_name,
-                        outcome.profiling_result.total_rows,
-                        0,
-                        0,
+                        empty_vr,
+                        outcome.profiling_result,
                     )
+                    report_summaries.append(
+                        make_report_summary(
+                            table_key,
+                            outcome.profiling_result.table_name,
+                            outcome.profiling_result.total_rows,
+                            0,
+                            0,
+                        )
+                    )
+
+            except Exception as exc:
+                log.error("table processing failed", table=table_key, error=str(exc))
+                outcomes.append(TableOutcome(table_key=table_key, success=False, error=str(exc)))
+
+    # L2: Cross-table validation
+    if config.run_l2 and not profile_only:
+        try:
+            from scdm_qa.schemas.cross_table_checks import get_cross_table_checks, get_checks_for_table
+            from scdm_qa.validation.cross_table import run_cross_table_checks
+
+            if table_filter:
+                all_checks = get_checks_for_table(table_filter)
+            else:
+                all_checks = get_cross_table_checks()
+
+            if all_checks:
+                cross_table_steps = run_cross_table_checks(
+                    config, all_checks, table_filter=table_filter,
                 )
+
+                if cross_table_steps:
+                    cross_table_vr = ValidationResult(
+                        table_key="cross_table",
+                        table_name="Cross-Table Checks",
+                        steps=tuple(cross_table_steps),
+                        total_rows=0,
+                        chunks_processed=0,
+                    )
+                    outcomes.append(TableOutcome(
+                        table_key="cross_table",
+                        success=True,
+                        validation_result=cross_table_vr,
+                    ))
+
+                    # Generate report for cross-table results
+                    empty_profiling = ProfilingResult(
+                        table_key="cross_table",
+                        table_name="Cross-Table Checks",
+                        total_rows=0,
+                        columns=(),
+                    )
+                    save_table_report(
+                        config.output_dir,
+                        "cross_table",
+                        cross_table_vr,
+                        empty_profiling,
+                    )
+                    report_summaries.append(
+                        make_report_summary(
+                            "cross_table",
+                            "Cross-Table Checks",
+                            0,
+                            len(cross_table_steps),
+                            sum(s.n_failed for s in cross_table_steps),
+                        )
+                    )
 
         except Exception as exc:
-            log.error("table processing failed", table=table_key, error=str(exc))
-            outcomes.append(TableOutcome(table_key=table_key, success=False, error=str(exc)))
+            log.error("cross-table validation failed", error=str(exc))
+            outcomes.append(TableOutcome(table_key="cross_table", success=False, error=str(exc)))
 
     if report_summaries:
         save_index(config.output_dir, report_summaries)

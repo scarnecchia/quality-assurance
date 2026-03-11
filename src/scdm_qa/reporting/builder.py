@@ -13,11 +13,10 @@ def build_validation_table(result: ValidationResult) -> GT:
     rows = []
     for step in result.steps:
         rows.append({
-            "Step": step.step_index,
+            "Step": step.check_id or str(step.step_index),
             "Check": step.assertion_type,
             "Column": step.column,
             "Description": step.description,
-            "CheckID": step.check_id or "—",
             "Total": step.n_total,
             "Passed": step.n_passed,
             "Failed": step.n_failed,
@@ -26,8 +25,7 @@ def build_validation_table(result: ValidationResult) -> GT:
 
     if not rows:
         rows.append({
-            "Step": 0, "Check": "—", "Column": "—", "Description": "No validation steps",
-            "CheckID": "—",
+            "Step": "—", "Check": "—", "Column": "—", "Description": "No validation steps",
             "Total": 0, "Passed": 0, "Failed": 0, "Pass Rate": 1.0,
         })
 
@@ -97,7 +95,7 @@ def build_failing_rows_table(result: ValidationResult) -> list[tuple[str, GT]]:
                 GT(step.failing_rows.head(100))
                 .tab_header(
                     title=f"Failing Rows: {step.description}",
-                    subtitle=f"Step {step.step_index} — {step.n_failed:,} total failures (showing up to 100)",
+                    subtitle=f"Check {step.check_id or step.step_index} — {step.n_failed:,} total failures (showing up to 100)",
                 )
             )
             tables.append((f"step_{step.step_index}", gt))
@@ -114,7 +112,7 @@ def save_table_report(
     report_path = output_dir / f"{table_key}.html"
 
     validation_gt = build_validation_table(validation_result)
-    profiling_gt = build_profiling_table(profiling_result)
+    profiling_gt = build_profiling_table(profiling_result) if profiling_result.columns else None
     failing_tables = build_failing_rows_table(validation_result)
 
     csv_download_js = """
@@ -152,9 +150,13 @@ def save_table_report(
         f"<h1>SCDM-QA Report: {validation_result.table_name}</h1>",
         "<h2>Validation Summary</h2>",
         validation_gt.as_raw_html(inline_css=False),
-        "<h2>Data Profile</h2>",
-        profiling_gt.as_raw_html(inline_css=False),
     ]
+
+    if profiling_gt:
+        parts.extend([
+            "<h2>Data Profile</h2>",
+            profiling_gt.as_raw_html(inline_css=False),
+        ])
 
     if failing_tables:
         parts.append("<h2>Failing Row Extracts</h2>")

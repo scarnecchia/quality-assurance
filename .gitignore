@@ -43,3 +43,9 @@ htmlcov/
 .DS_Store
 
 /qa-reports/
+
+# Logs
+*.log
+
+# Config
+config.toml

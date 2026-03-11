@@ -106,7 +106,7 @@ def _parse_missing_allowed(value: bool | str) -> bool:
     if isinstance(value, bool):
         return value
     lower = value.lower()
-    if "conditional" in lower or "special missing" in lower:
+    if "conditional" in lower or "special missing" in lower or "missing only allowed" in lower:
         return True
     log.warning(
         "unrecognised missing_allowed string, treating as nullable",
