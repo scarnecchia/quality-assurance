@@ -405,3 +405,236 @@ class TestSaveDashboard:
         assert "<html" in html
         assert "</html>" in html
         assert "SCDM-QA Dashboard" in html
+
+
+class TestDetailPage:
+    def test_detail_page_created_for_each_table(self, tmp_path: Path) -> None:
+        """AC2.1+: Verify detail page is created for each table."""
+        vr, pr = _make_results_pair(table_key="demographic")
+        save_dashboard(tmp_path, [(vr, pr)])
+        detail_file = tmp_path / "demographic.html"
+        assert detail_file.exists(), "detail page should be created with table_key.html"
+
+    def test_multiple_detail_pages_created(self, tmp_path: Path) -> None:
+        """AC2.1+: Verify multiple detail pages are created for multiple tables."""
+        vr1, pr1 = _make_results_pair(table_key="demographic")
+        vr2, pr2 = _make_results_pair(table_key="visits")
+        save_dashboard(tmp_path, [(vr1, pr1), (vr2, pr2)])
+        assert (tmp_path / "demographic.html").exists()
+        assert (tmp_path / "visits.html").exists()
+
+    def test_detail_page_contains_back_link(self, tmp_path: Path) -> None:
+        """AC2.1+: Verify detail page has back link to index."""
+        vr, pr = _make_results_pair()
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        assert 'href="index.html"' in html, "back link should navigate to index.html"
+        assert "Back to Index" in html
+
+    def test_detail_page_contains_stat_cards(self, tmp_path: Path) -> None:
+        """AC2.2: Detail page header shows table name, total rows, chunks processed, overall pass rate."""
+        vr, pr = _make_results_pair(with_failures=True)
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Verify stat card elements exist
+        assert 'id="stat-total-rows"' in html
+        assert 'id="stat-chunks"' in html
+        assert 'id="stat-pass-rate"' in html
+        assert 'id="stat-checks"' in html
+
+    def test_detail_page_json_contains_validation_data(self, tmp_path: Path) -> None:
+        """AC2.2: Verify embedded JSON has correct validation.total_rows and chunks_processed."""
+        vr, pr = _make_results_pair(table_key="demographic", with_failures=True)
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        assert match, "embedded JSON should exist"
+        data = json.loads(match.group(1))
+        assert data["validation"]["total_rows"] == 100
+        assert data["validation"]["chunks_processed"] == 1
+
+    def test_detail_page_json_contains_all_step_fields(self, tmp_path: Path) -> None:
+        """AC2.3: Verify steps array contains all StepResult fields."""
+        step = _make_step(n_passed=98, n_failed=2, check_id="122", severity="Fail")
+        vr = ValidationResult(
+            table_key="test",
+            table_name="Test Table",
+            steps=(step,),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = ProfilingResult(table_key="test", table_name="Test Table", total_rows=100, columns=())
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "test.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        steps = data["validation"]["steps"]
+        assert len(steps) == 1
+        step_data = steps[0]
+        assert "check_id" in step_data and step_data["check_id"] == "122"
+        assert "assertion_type" in step_data and step_data["assertion_type"] == "col_vals_not_null"
+        assert "column" in step_data and step_data["column"] == "PatID"
+        assert "description" in step_data
+        assert "n_passed" in step_data and step_data["n_passed"] == 98
+        assert "n_failed" in step_data and step_data["n_failed"] == 2
+        assert "pass_rate" in step_data
+        assert "severity" in step_data and step_data["severity"] == "Fail"
+
+    def test_detail_page_multiple_steps_all_present(self, tmp_path: Path) -> None:
+        """AC2.3: Verify all steps appear in the JSON for detail page."""
+        step1 = _make_step(n_passed=98, n_failed=2, check_id="122", severity="Fail")
+        step2 = StepResult(
+            step_index=2,
+            assertion_type="col_vals_between",
+            column="age",
+            description="age between 0 and 150",
+            n_passed=99,
+            n_failed=1,
+            failing_rows=pl.DataFrame({"age": [999]}),
+            check_id="456",
+            severity="Warn",
+        )
+        vr = ValidationResult(
+            table_key="test",
+            table_name="Test Table",
+            steps=(step1, step2),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = ProfilingResult(table_key="test", table_name="Test Table", total_rows=100, columns=())
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "test.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        steps = data["validation"]["steps"]
+        assert len(steps) == 2
+        assert steps[0]["check_id"] == "122"
+        assert steps[1]["check_id"] == "456"
+
+    def test_detail_page_contains_header_filters(self, tmp_path: Path) -> None:
+        """AC2.4: Verify header filters are configured on severity, assertion_type, column, description."""
+        vr, pr = _make_results_pair()
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Check for headerFilter configuration in JS
+        assert "headerFilter: true" in html, "headerFilter should be enabled on table columns"
+
+    def test_detail_page_severity_column_has_filter(self, tmp_path: Path) -> None:
+        """AC2.4: Severity column must have headerFilter."""
+        vr, pr = _make_results_pair()
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Find the severity column definition
+        assert 'field: "severity"' in html and 'headerFilter: true' in html
+
+    def test_detail_page_contains_csv_download_button(self, tmp_path: Path) -> None:
+        """AC2.5: CSV download button must exist with download functionality."""
+        vr, pr = _make_results_pair()
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        assert 'id="download-validation-csv"' in html, "download button should exist"
+        assert 'download("csv"' in html or '.download(' in html, "CSV download call should be present"
+
+    def test_detail_page_csv_download_wired_correctly(self, tmp_path: Path) -> None:
+        """AC2.5: CSV download must be wired to the button."""
+        vr, pr = _make_results_pair()
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        # Check for event listener and download call
+        assert "download-validation-csv" in html
+        assert 'download("csv"' in html or ".download(" in html
+
+    def test_cross_table_detail_page_created(self, tmp_path: Path) -> None:
+        """AC3.1: When results include cross_table entry, cross_table.html is produced."""
+        cross_table_vr = ValidationResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            steps=(_make_step(check_id="201", severity="Fail"),),
+            total_rows=0,
+            chunks_processed=0,
+        )
+        cross_table_pr = ProfilingResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            total_rows=0,
+            columns=(),
+        )
+        save_dashboard(tmp_path, [(cross_table_vr, cross_table_pr)])
+        detail_file = tmp_path / "cross_table.html"
+        assert detail_file.exists(), "cross_table.html should be created"
+
+    def test_cross_table_in_index_json(self, tmp_path: Path) -> None:
+        """AC3.1: Index page JSON contains cross_table entry."""
+        cross_table_vr = ValidationResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            steps=(_make_step(check_id="201", severity="Fail"),),
+            total_rows=0,
+            chunks_processed=0,
+        )
+        cross_table_pr = ProfilingResult(
+            table_key="cross_table",
+            table_name="Cross-Table Checks",
+            total_rows=0,
+            columns=(),
+        )
+        save_dashboard(tmp_path, [(cross_table_vr, cross_table_pr)])
+        html = (tmp_path / "index.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        assert "cross_table" in data["tables"], "cross_table should be in index JSON"
+
+    def test_detail_page_filename_matches_table_key(self, tmp_path: Path) -> None:
+        """Verify detail page filename is {table_key}.html."""
+        vr, pr = _make_results_pair(table_key="demographic")
+        save_dashboard(tmp_path, [(vr, pr)])
+        assert (tmp_path / "demographic.html").exists()
+
+    def test_detail_page_with_null_check_id(self, tmp_path: Path) -> None:
+        """AC4.3: check_id can be null, display as '—' in detail page."""
+        step = _make_step(check_id=None, severity=None)
+        vr = ValidationResult(
+            table_key="test",
+            table_name="Test Table",
+            steps=(step,),
+            total_rows=100,
+            chunks_processed=1,
+        )
+        pr = ProfilingResult(table_key="test", table_name="Test Table", total_rows=100, columns=())
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "test.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        data = json.loads(match.group(1))
+        # The JS client-side code handles the display; verify JSON has null
+        step_data = data["validation"]["steps"][0]
+        assert step_data["check_id"] is None, "check_id can be null in JSON"
+
+    def test_detail_page_title_matches_table_name(self, tmp_path: Path) -> None:
+        """Verify page title (h1) matches table_name."""
+        vr, pr = _make_results_pair(table_key="demographic")
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        assert "Demographic Table" in html, "table name should appear in page"
+
+    def test_detail_page_html_valid_structure(self, tmp_path: Path) -> None:
+        """Verify detail page has valid HTML structure."""
+        vr, pr = _make_results_pair()
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        assert "<!DOCTYPE html>" in html
+        assert "<html" in html
+        assert "</html>" in html
+        assert "SCDM-QA Dashboard" in html
+
+    def test_detail_page_embedded_json_is_valid(self, tmp_path: Path) -> None:
+        """Verify embedded JSON in detail page is valid JSON."""
+        vr, pr = _make_results_pair(with_failures=True)
+        save_dashboard(tmp_path, [(vr, pr)])
+        html = (tmp_path / "demographic.html").read_text()
+        match = re.search(r'<script type="application/json" id="dashboard-data">(.*?)</script>', html, re.DOTALL)
+        assert match, "embedded JSON should exist"
+        # Should not raise if valid JSON
+        data = json.loads(match.group(1))
+        assert isinstance(data, dict)
+        assert "validation" in data
+        assert "profiling" in data
