@@ -152,7 +152,7 @@
         };
     });
 
-    new Tabulator("#summary-table", {
+    var summaryTable = new Tabulator("#summary-table", {
         data: tableRows,
         layout: "fitColumns",
         columns: [
@@ -176,10 +176,11 @@
                 return v;
             }}
         ],
-        initialSort: [{ column: "pass_rate", dir: "asc" }],
-        rowClick: function(e, row) {
-            window.location.href = row.getData().table_key + ".html";
-        }
+        initialSort: [{ column: "pass_rate", dir: "asc" }]
+    });
+
+    summaryTable.on("rowClick", function(e, row) {
+        window.location.href = row.getData().table_key + ".html";
     });
 })();
 </script>
