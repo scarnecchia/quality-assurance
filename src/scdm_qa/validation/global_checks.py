@@ -17,6 +17,27 @@ from scdm_qa.validation.results import StepResult
 
 log = structlog.get_logger(__name__)
 
+# Maps internal table_key to SAS short table ID used in flag descriptions.
+_TABLE_KEY_TO_SAS_ID: dict[str, str] = {
+    "cause_of_death": "COD",
+    "death": "DTH",
+    "demographic": "DEM",
+    "diagnosis": "DIA",
+    "dispensing": "DIS",
+    "encounter": "ENC",
+    "enrollment": "ENR",
+    "facility": "FAC",
+    "inpatient_pharmacy": "IRX",
+    "laboratory": "LAB",
+    "prescribing": "PRE",
+    "procedure": "PRO",
+    "provider": "PVD",
+    "vital_signs": "VIT",
+    "patient_reported_response": "PRR",
+    "patient_reported_survey": "PRS",
+    "tranx": "TXN",
+}
+
 
 class SortViolation(TypedDict):
     chunk_boundary: str
@@ -34,7 +55,7 @@ def check_uniqueness(
         return None
 
     key_cols = list(schema.unique_row)
-    description = f"Uniqueness on ({', '.join(key_cols)})"
+    description = f"Duplicate record(s) present for unique key variable(s): {', '.join(key_cols)}"
 
     if file_path.suffix.lower() == ".parquet":
         result = _uniqueness_duckdb(file_path, key_cols, description, max_failing_rows)
@@ -106,8 +127,8 @@ def _uniqueness_duckdb(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_df if failing_df.height > 0 else None,
-        check_id=None,
-        severity=None,
+        check_id="211",
+        severity="Fail",
     )
 
 
@@ -155,8 +176,8 @@ def _uniqueness_in_memory(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_rows,
-        check_id=None,
-        severity=None,
+        check_id="211",
+        severity="Fail",
     )
 
 
@@ -168,7 +189,8 @@ def check_sort_order(
         return None
 
     sort_cols = list(schema.sort_order)
-    description = f"Sort order on ({', '.join(sort_cols)})"
+    sas_id = _TABLE_KEY_TO_SAS_ID.get(schema.table_key, schema.table_key.upper())
+    description = f"{sas_id} table is not sorted by the following variables: {', '.join(sort_cols)}"
 
     prev_last_row: pl.DataFrame | None = None
     violations: list[SortViolation] = []
@@ -208,8 +230,8 @@ def check_sort_order(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_rows,
-        check_id=None,
-        severity=None,
+        check_id="102",
+        severity="Fail",
     )
 
 

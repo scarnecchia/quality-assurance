@@ -608,7 +608,7 @@ class TestBackwardCompatibility:
         for outcome in outcomes:
             if outcome.validation_result:
                 for step in outcome.validation_result.steps:
-                    if step.check_id is None and "Sex" in step.column and step.n_failed > 0:
+                    if step.check_id == "121" and "Sex" in step.column and step.n_failed > 0:
                         found_pre_existing = True
         assert found_pre_existing, "Pre-existing validation checks should still produce failures"
 

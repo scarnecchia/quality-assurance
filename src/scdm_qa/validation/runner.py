@@ -126,13 +126,13 @@ def _build_step_descriptions(
             continue
         if not col.missing_allowed:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_not_null", col.name, f"{col.name} not null", None, None))
+            descriptions.append((step_idx, "col_vals_not_null", col.name, f"{col.name} variable contains a null value", "120", None))
         if col.allowed_values is not None:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_in_set", col.name, f"{col.name} in allowed values", None, None))
+            descriptions.append((step_idx, "col_vals_in_set", col.name, f"{col.name} variable contains an incorrect non-missing value", "121", None))
         if col.col_type == "Character" and col.length is not None:
             step_idx += 1
-            descriptions.append((step_idx, "col_vals_regex", col.name, f"{col.name} length <= {col.length}", None, None))
+            descriptions.append((step_idx, "col_vals_regex", col.name, f"{col.name} variable length does not conform to specifications", "113", "Fail"))
 
     for rule in schema.conditional_rules:
         if rule.target_column not in present_columns:
@@ -146,8 +146,8 @@ def _build_step_descriptions(
             step_idx,
             "col_vals_not_null (conditional)",
             rule.target_column,
-            f"{rule.target_column} not null when {rule.condition_column} in {sorted(rule.condition_values)}",
-            None,
+            f"{rule.target_column} variable contains a null value when {rule.condition_column} in {sorted(rule.condition_values)}",
+            "120",
             None,
         ))
 
@@ -200,7 +200,7 @@ def _build_step_descriptions(
                 step_idx,
                 "col_vals_regex",
                 fmt_check.column,
-                f"{fmt_check.column} no decimal for {fmt_check.codetype_value} (check {fmt_check.check_id})",
+                f"{fmt_check.column} value is incorrect based on {fmt_check.codetype_column} value",
                 fmt_check.check_id,
                 fmt_check.severity,
             ))
@@ -210,7 +210,7 @@ def _build_step_descriptions(
                 step_idx,
                 "col_vals_regex",
                 fmt_check.column,
-                f"{fmt_check.column} regex match for {fmt_check.codetype_value} (check {fmt_check.check_id})",
+                f"{fmt_check.column} value is incorrect based on {fmt_check.codetype_column} value",
                 fmt_check.check_id,
                 fmt_check.severity,
             ))
@@ -222,7 +222,7 @@ def _build_step_descriptions(
                 step_idx,
                 "col_vals_null",
                 fmt_check.column,
-                f"{fmt_check.column} era date check for {fmt_check.codetype_value} (check {fmt_check.check_id})",
+                f"{fmt_check.column} value is incorrect based on {fmt_check.date_column} value",
                 fmt_check.check_id,
                 fmt_check.severity,
             ))
@@ -234,7 +234,7 @@ def _build_step_descriptions(
                 step_idx,
                 "col_vals_null" if fmt_check.expect_null else "col_vals_not_null",
                 fmt_check.column,
-                f"{fmt_check.column} conditional presence (check {fmt_check.check_id})",
+                f"{fmt_check.column} value is incorrect based on {fmt_check.condition_column} value",
                 fmt_check.check_id,
                 fmt_check.severity,
             ))
@@ -251,7 +251,7 @@ def _build_step_descriptions(
             step_idx,
             "col_vals_regex",
             len_check.column,
-            f"{len_check.column} length {len_check.min_length}-{len_check.max_length} for {len_check.codetype_value} (check {len_check.check_id})",
+            f"{len_check.column} value length is incorrect based on {len_check.codetype_column}",
             len_check.check_id,
             len_check.severity,
         ))
