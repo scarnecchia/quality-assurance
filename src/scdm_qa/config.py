@@ -17,6 +17,9 @@ class QAConfig:
     verbose: bool = False
     run_l1: bool = True
     run_l2: bool = True
+    duckdb_memory_limit: str = "96GB"
+    duckdb_threads: int = 10
+    duckdb_temp_directory: Path | None = None
 
 
 class ConfigError(Exception):
@@ -59,10 +62,20 @@ def load_config(config_path: Path) -> QAConfig:
     run_l1 = options.get("run_l1", True)
     run_l2 = options.get("run_l2", True)
 
+    duckdb_memory_limit = options.get("duckdb_memory_limit", "96GB")
+    duckdb_threads = options.get("duckdb_threads", 10)
+    duckdb_temp_directory_str = options.get("duckdb_temp_directory")
+    duckdb_temp_directory = Path(duckdb_temp_directory_str) if duckdb_temp_directory_str else None
+
     if not isinstance(run_l1, bool):
         raise ConfigError(f"run_l1 must be a boolean, got: {run_l1}")
     if not isinstance(run_l2, bool):
         raise ConfigError(f"run_l2 must be a boolean, got: {run_l2}")
+
+    if not isinstance(duckdb_memory_limit, str):
+        raise ConfigError(f"duckdb_memory_limit must be a string (e.g. '4GB'), got: {duckdb_memory_limit}")
+    if not isinstance(duckdb_threads, int) or duckdb_threads <= 0:
+        raise ConfigError(f"duckdb_threads must be a positive integer, got: {duckdb_threads}")
 
     if not isinstance(chunk_size, int) or chunk_size <= 0:
         raise ConfigError(f"chunk_size must be a positive integer, got: {chunk_size}")
@@ -84,4 +97,7 @@ def load_config(config_path: Path) -> QAConfig:
         verbose=verbose,
         run_l1=run_l1,
         run_l2=run_l2,
+        duckdb_memory_limit=duckdb_memory_limit,
+        duckdb_threads=duckdb_threads,
+        duckdb_temp_directory=duckdb_temp_directory,
     )

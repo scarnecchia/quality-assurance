@@ -50,6 +50,9 @@ def check_uniqueness(
     chunks: Iterator[pl.DataFrame] | None = None,
     *,
     max_failing_rows: int = 500,
+    duckdb_memory_limit: str = "96GB",
+    duckdb_threads: int = 10,
+    duckdb_temp_directory: Path | None = None,
 ) -> StepResult | None:
     if not schema.unique_row:
         return None
@@ -58,7 +61,12 @@ def check_uniqueness(
     description = f"Duplicate record(s) present for unique key variable(s): {', '.join(key_cols)}"
 
     if file_path.suffix.lower() == ".parquet":
-        result = _uniqueness_duckdb(file_path, key_cols, description, max_failing_rows)
+        result = _uniqueness_duckdb(
+            file_path, key_cols, description, max_failing_rows,
+            memory_limit=duckdb_memory_limit,
+            threads=duckdb_threads,
+            temp_directory=duckdb_temp_directory,
+        )
         if result is not None:
             return result
         log.info("duckdb not available, falling back to in-memory uniqueness check")
@@ -71,9 +79,13 @@ def _uniqueness_duckdb(
     key_cols: list[str],
     description: str,
     max_failing_rows: int,
+    *,
+    memory_limit: str = "96GB",
+    threads: int = 10,
+    temp_directory: Path | None = None,
 ) -> StepResult | None:
     try:
-        import duckdb
+        from scdm_qa.validation.duckdb_utils import create_connection
     except ImportError:
         return None
 
@@ -97,7 +109,11 @@ def _uniqueness_duckdb(
         )
     """
 
-    conn = duckdb.connect()
+    conn = create_connection(
+        memory_limit=memory_limit,
+        threads=threads,
+        temp_directory=temp_directory,
+    )
     try:
         try:
             total_rows = conn.execute(total_query).fetchone()[0]
@@ -465,6 +481,9 @@ def check_overlapping_spans(
     chunks: Iterator[pl.DataFrame] | None = None,
     *,
     max_failing_rows: int = 500,
+    duckdb_memory_limit: str = "96GB",
+    duckdb_threads: int = 10,
+    duckdb_temp_directory: Path | None = None,
 ) -> StepResult | None:
     """Check 215: Detect overlapping enrollment spans within the same patient.
 
@@ -476,7 +495,12 @@ def check_overlapping_spans(
 
     # DuckDB fast path for Parquet files
     if file_path.suffix.lower() == ".parquet":
-        result = _overlapping_spans_duckdb(file_path, max_failing_rows)
+        result = _overlapping_spans_duckdb(
+            file_path, max_failing_rows,
+            memory_limit=duckdb_memory_limit,
+            threads=duckdb_threads,
+            temp_directory=duckdb_temp_directory,
+        )
         if result is not None:
             return result
         log.info("duckdb not available, falling back to in-memory overlap check")
@@ -487,9 +511,13 @@ def check_overlapping_spans(
 def _overlapping_spans_duckdb(
     file_path: Path,
     max_failing_rows: int,
+    *,
+    memory_limit: str = "96GB",
+    threads: int = 10,
+    temp_directory: Path | None = None,
 ) -> StepResult | None:
     try:
-        import duckdb
+        from scdm_qa.validation.duckdb_utils import create_connection
     except ImportError:
         return None
 
@@ -516,7 +544,11 @@ def _overlapping_spans_duckdb(
     """
     total_query = f"SELECT COUNT(*) FROM read_parquet('{safe_path}')"
 
-    conn = duckdb.connect()
+    conn = create_connection(
+        memory_limit=memory_limit,
+        threads=threads,
+        temp_directory=temp_directory,
+    )
     try:
         try:
             total_rows = conn.execute(total_query).fetchone()[0]

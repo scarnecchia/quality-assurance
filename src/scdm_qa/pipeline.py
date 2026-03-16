@@ -183,6 +183,9 @@ def _process_table(
             schema,
             chunks=uniqueness_reader.chunks(),
             max_failing_rows=config.max_failing_rows,
+            duckdb_memory_limit=config.duckdb_memory_limit,
+            duckdb_threads=config.duckdb_threads,
+            duckdb_temp_directory=config.duckdb_temp_directory,
         )
         if uniqueness_step is not None:
             global_steps.append(uniqueness_step)
@@ -219,6 +222,9 @@ def _process_table(
         overlap_step = check_overlapping_spans(
             file_path, schema, overlap_reader.chunks(),
             max_failing_rows=config.max_failing_rows,
+            duckdb_memory_limit=config.duckdb_memory_limit,
+            duckdb_threads=config.duckdb_threads,
+            duckdb_temp_directory=config.duckdb_temp_directory,
         )
         if overlap_step is not None:
             global_steps.append(overlap_step)

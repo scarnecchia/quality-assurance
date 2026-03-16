@@ -14,6 +14,7 @@ import polars as pl
 from scdm_qa.config import QAConfig
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.models import CrossTableCheckDef
+from scdm_qa.validation.duckdb_utils import create_connection
 from scdm_qa.validation.results import StepResult
 
 log = structlog.get_logger(__name__)
@@ -41,7 +42,11 @@ def run_cross_table_checks(
     conn: duckdb.DuckDBPyConnection | None = None
 
     try:
-        conn = duckdb.connect(":memory:")
+        conn = create_connection(
+            memory_limit=config.duckdb_memory_limit,
+            threads=config.duckdb_threads,
+            temp_directory=config.duckdb_temp_directory,
+        )
 
         # Register all tables as views
         for table_key, file_path in config.tables.items():
