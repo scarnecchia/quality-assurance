@@ -98,7 +98,9 @@ def run_cross_table_checks(
         for table_key, file_path in config.tables.items():
             try:
                 if file_path.suffix.lower() == ".sas7bdat":
-                    temp_path = _convert_sas_to_parquet(file_path, chunk_size=config.chunk_size)
+                    temp_path = _convert_sas_to_parquet(
+                        file_path, chunk_size=config.chunk_size, table_key=table_key
+                    )
                     temp_parquet_files.append(temp_path)
                     safe_path = str(temp_path).replace("'", "''")
                 else:
@@ -165,39 +167,113 @@ def run_cross_table_checks(
     return results
 
 
-def _convert_sas_to_parquet(sas_path: Path, chunk_size: int = 500_000) -> Path:
-    """Convert SAS7BDAT to temp parquet for DuckDB registration using chunked reading.
+def _build_write_schema(
+    canonical_schema: TableSchema | None,
+    data_schema: pa.Schema,
+) -> pa.Schema:
+    """Build a write schema merging canonical SCDM types with inferred types.
+
+    Canonical types are used for columns defined in the SCDM spec. Columns
+    present in data but not in spec keep their inferred types. Column order
+    follows the data schema.
 
     Args:
-        sas_path: Path to .sas7bdat file
-        chunk_size: Chunk size for reading
+        canonical_schema: SCDM TableSchema, or None for unknown tables.
+        data_schema: Schema inferred from the first data chunk.
 
     Returns:
-        Path to temporary parquet file
-
-    Note:
-        This still concatenates all chunks in memory before writing. For truly large files
-        that don't fit in memory, an incremental parquet writer would be needed.
+        Merged pyarrow.Schema with canonical types where available.
     """
+    if canonical_schema is None:
+        return data_schema
+
+    data_col_names = tuple(data_schema.names)
+    canonical = build_arrow_schema(canonical_schema, data_columns=data_col_names)
+    canonical_lookup = {f.name: f for f in canonical}
+
+    merged_fields: list[pa.Field] = []
+    for i, name in enumerate(data_col_names):
+        if name in canonical_lookup:
+            merged_fields.append(canonical_lookup[name])
+        else:
+            merged_fields.append(data_schema.field(i))
+
+    return pa.schema(merged_fields)
+
+
+def _convert_sas_to_parquet(
+    sas_path: Path,
+    chunk_size: int = 500_000,
+    *,
+    table_key: str,
+) -> Path:
+    """Convert SAS7BDAT to temp Parquet via streaming writes.
+
+    Each chunk is cast to a canonical schema (from the SCDM spec) and written
+    as a separate Parquet row group, keeping memory bounded to one chunk.
+
+    Args:
+        sas_path: Path to .sas7bdat file.
+        chunk_size: Chunk size for reading.
+        table_key: SCDM table key for canonical schema lookup.
+
+    Returns:
+        Path to temporary Parquet file.
+    """
+    import pyarrow.parquet as pq
+
     from scdm_qa.readers import create_reader
 
     reader = create_reader(sas_path, chunk_size=chunk_size)
+
+    # Resolve canonical schema (None if table_key unknown)
+    canonical_schema: TableSchema | None = None
+    try:
+        canonical_schema = get_schema(table_key)
+    except KeyError:
+        log.warning(
+            "no SCDM spec for table; schema will be inferred from data",
+            table_key=table_key,
+        )
+
     with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_file:
         tmp_path = Path(tmp_file.name)
 
-    chunks = list(reader.chunks())
-    if chunks:
-        combined = pl.concat(chunks)
-        combined.write_parquet(tmp_path)
-    else:
-        combined = pl.DataFrame()
-        combined.write_parquet(tmp_path)
+    writer: pq.ParquetWriter | None = None
+    write_schema: pa.Schema | None = None
+    total_rows = 0
 
-    log.warning(
-        "converted SAS file to temp parquet",
+    try:
+        for chunk_df in reader.chunks():
+            arrow_table = chunk_df.to_arrow()
+
+            if write_schema is None:
+                write_schema = _build_write_schema(
+                    canonical_schema, arrow_table.schema
+                )
+                writer = pq.ParquetWriter(str(tmp_path), write_schema)
+
+            arrow_table = arrow_table.cast(write_schema)
+            writer.write_table(arrow_table)
+            total_rows += arrow_table.num_rows
+
+        # Handle zero-chunk case
+        if writer is None:
+            if canonical_schema is not None:
+                write_schema = build_arrow_schema(canonical_schema)
+            else:
+                write_schema = pa.schema([])
+            writer = pq.ParquetWriter(str(tmp_path), write_schema)
+    finally:
+        if writer is not None:
+            writer.close()
+
+    log.info(
+        "converted SAS file to temp parquet (streaming)",
         sas_path=str(sas_path),
         tmp_path=str(tmp_path),
-        n_rows=combined.height,
+        n_rows=total_rows,
+        n_columns=len(write_schema) if write_schema else 0,
     )
     return tmp_path
 
