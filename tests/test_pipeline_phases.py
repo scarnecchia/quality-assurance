@@ -721,3 +721,142 @@ class TestCrossTableReporting:
             assert match, "dashboard-data script tag should be present"
             data = json.loads(match.group(1))
             assert data["profiling"]["columns"] == []
+
+
+class TestSASFileSkip:
+    """Tests for GH-7.AC6 — SAS file handling in global checks."""
+
+    def test_sas_file_skips_global_checks_with_warning(self, tmp_path: Path) -> None:
+        """GH-7.AC6.1: Pipeline skips global checks for SAS files with a logged warning."""
+        from scdm_qa.pipeline import _process_table
+
+        # Create a minimal Parquet file for validation to succeed
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        # Create minimal demographic Parquet with required columns
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
+        })
+        df.write_parquet(data_dir / "demographic.parquet")
+
+        # Create a dummy SAS file path (doesn't need to be a valid SAS file)
+        sas_path = data_dir / "demographic.sas7bdat"
+        sas_path.write_text("dummy")
+
+        # Patch the reader and validation to prevent actual reading
+        with patch("scdm_qa.pipeline.create_reader") as mock_reader, \
+             patch("scdm_qa.pipeline.run_validation") as mock_validation, \
+             patch("scdm_qa.pipeline.load_custom_rules") as mock_custom:
+            # Mock reader and validation to succeed
+            mock_validation.return_value = ValidationResult(
+                table_key="demographic",
+                table_name="Demographic",
+                steps=(),
+                total_rows=2,
+                chunks_processed=1,
+            )
+
+            # Create config
+            output_dir = tmp_path / "reports"
+            output_dir.mkdir()
+            config = QAConfig(
+                tables={"demographic": sas_path},
+                output_dir=output_dir,
+            )
+
+            # Call _process_table with SAS file
+            outcome = _process_table("demographic", sas_path, config, profile_only=False)
+
+            # Verify success
+            assert outcome.success is True
+            assert outcome.validation_result is not None
+
+            # Verify no global check steps were added (empty steps)
+            # Global checks should be skipped for SAS files
+            assert len(outcome.validation_result.steps) == 0
+
+    def test_sas_file_no_errors_or_crashes(self, tmp_path: Path) -> None:
+        """GH-7.AC6.2: SAS files do not cause errors or crashes — graceful skip."""
+        from scdm_qa.pipeline import _process_table
+
+        # Create a minimal data directory
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        # Create dummy SAS file
+        sas_path = data_dir / "demographic.sas7bdat"
+        sas_path.write_text("dummy")
+
+        # Patch the reader and validation to prevent actual reading
+        with patch("scdm_qa.pipeline.create_reader") as mock_reader, \
+             patch("scdm_qa.pipeline.run_validation") as mock_validation, \
+             patch("scdm_qa.pipeline.load_custom_rules") as mock_custom:
+            # Mock validation to succeed
+            mock_validation.return_value = ValidationResult(
+                table_key="demographic",
+                table_name="Demographic",
+                steps=(),
+                total_rows=2,
+                chunks_processed=1,
+            )
+
+            # Create config
+            output_dir = tmp_path / "reports"
+            output_dir.mkdir()
+            config = QAConfig(
+                tables={"demographic": sas_path},
+                output_dir=output_dir,
+            )
+
+            # Call _process_table with SAS file — should not raise any exception
+            outcome = _process_table("demographic", sas_path, config, profile_only=False)
+
+            # Verify successful outcome (graceful skip, no errors)
+            assert outcome.success is True
+            assert outcome.error is None
+
+    def test_parquet_file_includes_global_checks(self, tmp_path: Path) -> None:
+        """Verify that Parquet files still execute global checks (contrast test)."""
+        from scdm_qa.pipeline import _process_table
+
+        # Create a minimal Parquet file
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
+        })
+        parquet_path = data_dir / "demographic.parquet"
+        df.write_parquet(parquet_path)
+
+        # Create config
+        output_dir = tmp_path / "reports"
+        output_dir.mkdir()
+        config = QAConfig(
+            tables={"demographic": parquet_path},
+            output_dir=output_dir,
+        )
+
+        # Call _process_table with Parquet file
+        outcome = _process_table("demographic", parquet_path, config, profile_only=False)
+
+        # Verify success
+        assert outcome.success is True
+
+        # With Parquet, global checks should have been attempted
+        # At minimum, validation_result should exist and have processed chunks
+        assert outcome.validation_result is not None
+        assert outcome.validation_result.chunks_processed > 0

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import duckdb
 import structlog
 
 from scdm_qa.config import QAConfig
@@ -13,6 +14,7 @@ from scdm_qa.reporting.dashboard import save_dashboard
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.schemas.custom_rules import load_custom_rules
+from scdm_qa.validation.duckdb_utils import create_connection
 from scdm_qa.validation.global_checks import (
     check_cause_of_death,
     check_date_ordering,
@@ -173,78 +175,106 @@ def _process_table(
 
     profiling_result = profiling_acc.result()
 
-    # Global checks (uniqueness + sort order)
+    # Global checks (require full-table access)
     global_steps: list[StepResult] = []
+    is_parquet = file_path.suffix.lower() == ".parquet"
 
-    if schema.unique_row:
-        uniqueness_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        uniqueness_step = check_uniqueness(
-            file_path,
-            schema,
-            chunks=uniqueness_reader.chunks(),
-            max_failing_rows=config.max_failing_rows,
-            duckdb_memory_limit=config.duckdb_memory_limit,
-            duckdb_threads=config.duckdb_threads,
-            duckdb_temp_directory=config.duckdb_temp_directory,
+    if not is_parquet:
+        log.warning(
+            "skipping global checks for non-Parquet file",
+            table=table_key,
+            file=str(file_path),
+            reason="global checks require Parquet format",
         )
-        if uniqueness_step is not None:
-            global_steps.append(uniqueness_step)
+    else:
+        conn: duckdb.DuckDBPyConnection | None = None
+        try:
+            conn = create_connection(
+                memory_limit=config.duckdb_memory_limit,
+                threads=config.duckdb_threads,
+                temp_directory=config.duckdb_temp_directory,
+            )
+            safe_path = str(file_path).replace("'", "''")
+            conn.execute(
+                f'CREATE VIEW "{table_key}" AS SELECT * FROM read_parquet(\'{safe_path}\')'
+            )
+            log.debug("registered global check view", table=table_key)
 
-    if schema.sort_order:
-        # NOTE: This requires a second scan. Could be optimised by collecting
-        # chunk boundary rows during the validation pass.
-        sort_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        sort_step = check_sort_order(schema, sort_reader.chunks())
-        if sort_step is not None:
-            global_steps.append(sort_step)
+            # --- All existing global check calls go here, unchanged ---
+            if schema.unique_row:
+                uniqueness_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                uniqueness_step = check_uniqueness(
+                    file_path,
+                    schema,
+                    chunks=uniqueness_reader.chunks(),
+                    max_failing_rows=config.max_failing_rows,
+                    duckdb_memory_limit=config.duckdb_memory_limit,
+                    duckdb_threads=config.duckdb_threads,
+                    duckdb_temp_directory=config.duckdb_temp_directory,
+                )
+                if uniqueness_step is not None:
+                    global_steps.append(uniqueness_step)
 
-    if get_not_populated_checks_for_table(schema.table_key):
-        # L1 global check: not populated (check 111)
-        not_pop_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        not_pop_steps = check_not_populated(schema, not_pop_reader.chunks())
-        global_steps.extend(not_pop_steps)
+            if schema.sort_order:
+                sort_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                sort_step = check_sort_order(schema, sort_reader.chunks())
+                if sort_step is not None:
+                    global_steps.append(sort_step)
 
-    # L2 check: date ordering (check 226)
-    if get_date_ordering_checks_for_table(schema.table_key):
-        date_order_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        date_order_steps = check_date_ordering(schema, date_order_reader.chunks(), max_failing_rows=config.max_failing_rows)
-        global_steps.extend(date_order_steps)
+            if get_not_populated_checks_for_table(schema.table_key):
+                not_pop_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                not_pop_steps = check_not_populated(schema, not_pop_reader.chunks())
+                global_steps.extend(not_pop_steps)
 
-    # L2 check: cause of death (checks 236, 237)
-    if schema.table_key == "cause_of_death":
-        cod_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        cod_steps = check_cause_of_death(schema, cod_reader.chunks(), max_failing_rows=config.max_failing_rows)
-        global_steps.extend(cod_steps)
+            if get_date_ordering_checks_for_table(schema.table_key):
+                date_order_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                date_order_steps = check_date_ordering(
+                    schema, date_order_reader.chunks(),
+                    max_failing_rows=config.max_failing_rows,
+                )
+                global_steps.extend(date_order_steps)
 
-    # L2 checks: enrollment overlaps and gaps (checks 215, 216)
-    if schema.table_key == "enrollment":
-        overlap_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        overlap_step = check_overlapping_spans(
-            file_path, schema, overlap_reader.chunks(),
-            max_failing_rows=config.max_failing_rows,
-            duckdb_memory_limit=config.duckdb_memory_limit,
-            duckdb_threads=config.duckdb_threads,
-            duckdb_temp_directory=config.duckdb_temp_directory,
-        )
-        if overlap_step is not None:
-            global_steps.append(overlap_step)
+            if schema.table_key == "cause_of_death":
+                cod_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                cod_steps = check_cause_of_death(schema, cod_reader.chunks(),
+                    max_failing_rows=config.max_failing_rows,
+                )
+                global_steps.extend(cod_steps)
 
-        gaps_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        gaps_step = check_enrollment_gaps(
-            schema, gaps_reader.chunks(),
-            max_failing_rows=config.max_failing_rows,
-        )
-        if gaps_step is not None:
-            global_steps.append(gaps_step)
+            if schema.table_key == "enrollment":
+                overlap_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                overlap_step = check_overlapping_spans(
+                    file_path, schema, overlap_reader.chunks(),
+                    max_failing_rows=config.max_failing_rows,
+                    duckdb_memory_limit=config.duckdb_memory_limit,
+                    duckdb_threads=config.duckdb_threads,
+                    duckdb_temp_directory=config.duckdb_temp_directory,
+                )
+                if overlap_step is not None:
+                    global_steps.append(overlap_step)
 
-    # L2 checks: ENC field combinations (checks 244, 245)
-    if schema.table_key == "encounter":
-        enc_combo_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        enc_combo_steps = check_enc_combinations(
-            schema, enc_combo_reader.chunks(),
-            max_failing_rows=config.max_failing_rows,
-        )
-        global_steps.extend(enc_combo_steps)
+                gaps_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                gaps_step = check_enrollment_gaps(
+                    schema, gaps_reader.chunks(),
+                    max_failing_rows=config.max_failing_rows,
+                )
+                if gaps_step is not None:
+                    global_steps.append(gaps_step)
+
+            if schema.table_key == "encounter":
+                enc_combo_reader = create_reader(file_path, chunk_size=config.chunk_size)
+                enc_combo_steps = check_enc_combinations(
+                    schema, enc_combo_reader.chunks(),
+                    max_failing_rows=config.max_failing_rows,
+                )
+                global_steps.extend(enc_combo_steps)
+
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as e:
+                    log.warning("failed to close DuckDB connection", error=str(e))
 
     if global_steps:
         all_steps = list(validation_result.steps) + global_steps
