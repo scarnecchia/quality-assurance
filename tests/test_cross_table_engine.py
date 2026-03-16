@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import polars as pl
+import pyarrow as pa
 import pytest
 
 from scdm_qa.config import QAConfig
@@ -670,9 +671,6 @@ class TestBuildArrowSchema:
 
     def test_known_table_produces_correct_types(self) -> None:
         """Test GH-6.AC3.1: Known SCDM table resolves to canonical pyarrow.Schema."""
-        pytest.importorskip("pyarrow")
-        import pyarrow as pa
-
         schema = get_schema("demographic")
         arrow_schema = build_arrow_schema(schema)
 
@@ -683,9 +681,6 @@ class TestBuildArrowSchema:
 
     def test_numeric_columns_map_to_float64(self) -> None:
         """Test numeric columns are mapped to pa.float64()."""
-        pytest.importorskip("pyarrow")
-        import pyarrow as pa
-
         schema = get_schema("demographic")
         arrow_schema = build_arrow_schema(schema)
 
@@ -695,9 +690,6 @@ class TestBuildArrowSchema:
 
     def test_character_columns_map_to_utf8(self) -> None:
         """Test character columns are mapped to pa.utf8()."""
-        pytest.importorskip("pyarrow")
-        import pyarrow as pa
-
         schema = get_schema("demographic")
         arrow_schema = build_arrow_schema(schema)
 
@@ -707,8 +699,6 @@ class TestBuildArrowSchema:
 
     def test_nullability_matches_missing_allowed(self) -> None:
         """Test nullability in arrow schema matches ColumnDef.missing_allowed."""
-        pytest.importorskip("pyarrow")
-
         schema = get_schema("demographic")
         arrow_schema = build_arrow_schema(schema)
 
@@ -719,20 +709,16 @@ class TestBuildArrowSchema:
 
     def test_data_columns_filters_and_orders(self) -> None:
         """Test data_columns parameter filters and orders columns."""
-        pytest.importorskip("pyarrow")
-
         schema = get_schema("demographic")
-        # Specify a subset in a specific order
-        data_cols = ("PatID", "Birth_Date", "Hispanic")
+        # Specify a subset in a specific order (fully reversed from spec order)
+        data_cols = ("Hispanic", "Birth_Date", "PatID")
         arrow_schema = build_arrow_schema(schema, data_columns=data_cols)
 
         # Schema should include only these columns in this order
-        assert arrow_schema.names == ["PatID", "Birth_Date", "Hispanic"]
+        assert arrow_schema.names == ["Hispanic", "Birth_Date", "PatID"]
 
     def test_data_columns_excludes_non_spec_columns(self) -> None:
         """Test that columns in data but not in spec are excluded."""
-        pytest.importorskip("pyarrow")
-
         schema = get_schema("demographic")
         # Include a column that exists in spec and one that doesn't
         data_cols = ("PatID", "Birth_Date", "UnknownColumn", "Hispanic")
@@ -745,8 +731,6 @@ class TestBuildArrowSchema:
 
     def test_unknown_col_type_raises_value_error(self) -> None:
         """Test that unknown col_type raises ValueError."""
-        pytest.importorskip("pyarrow")
-
         # Create a custom TableSchema with an unknown col_type
         bad_col = ColumnDef(
             name="BadColumn",
