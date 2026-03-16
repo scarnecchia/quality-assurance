@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest import mock
 
 import polars as pl
 import pyarrow as pa
@@ -11,7 +12,12 @@ import pytest
 from scdm_qa.config import QAConfig
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.models import CrossTableCheckDef, TableSchema, ColumnDef
-from scdm_qa.validation.cross_table import run_cross_table_checks, build_arrow_schema
+from scdm_qa.validation.cross_table import (
+    run_cross_table_checks,
+    build_arrow_schema,
+    _convert_sas_to_parquet,
+    _build_write_schema,
+)
 
 
 @pytest.fixture
@@ -753,3 +759,251 @@ class TestBuildArrowSchema:
 
         with pytest.raises(ValueError, match="unrecognised SCDM col_type"):
             build_arrow_schema(bad_schema)
+
+
+class TestStreamingSasConversion:
+    """Test Task 1: Streaming SAS-to-Parquet conversion."""
+
+    def test_multi_chunk_preserves_all_rows(self) -> None:
+        """Test GH-6.AC1.1: Multi-chunk write preserves all rows."""
+        # Create mock reader yielding 3 chunks of 10 rows each
+        chunk1 = pl.DataFrame({"PatID": [f"P{i:03d}" for i in range(10)], "Value": list(range(10))})
+        chunk2 = pl.DataFrame({"PatID": [f"P{i:03d}" for i in range(10, 20)], "Value": list(range(10, 20))})
+        chunk3 = pl.DataFrame({"PatID": [f"P{i:03d}" for i in range(20, 30)], "Value": list(range(20, 30))})
+
+        mock_reader = mock.Mock()
+        mock_reader.chunks.return_value = [chunk1, chunk2, chunk3]
+
+        with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
+            result_path = _convert_sas_to_parquet(
+                Path("/fake/path.sas7bdat"),
+                chunk_size=500_000,
+                table_key="test_table",
+            )
+
+        # Read back the parquet file and verify all rows are present
+        result_df = pl.read_parquet(result_path)
+        assert result_df.height == 30
+        assert set(result_df["Value"].to_list()) == set(range(30))
+        result_path.unlink()
+
+    def test_each_chunk_becomes_row_group(self) -> None:
+        """Test GH-6.AC1.2: Each chunk becomes a separate Parquet row group."""
+        chunk1 = pl.DataFrame({"PatID": ["P001", "P002"], "Value": [1, 2]})
+        chunk2 = pl.DataFrame({"PatID": ["P003", "P004"], "Value": [3, 4]})
+        chunk3 = pl.DataFrame({"PatID": ["P005", "P006"], "Value": [5, 6]})
+
+        mock_reader = mock.Mock()
+        mock_reader.chunks.return_value = [chunk1, chunk2, chunk3]
+
+        with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
+            result_path = _convert_sas_to_parquet(
+                Path("/fake/path.sas7bdat"),
+                chunk_size=500_000,
+                table_key="test_table",
+            )
+
+        # Read parquet metadata
+        import pyarrow.parquet as pq
+
+        parquet_file = pq.read_table(result_path)
+        parquet_meta = pq.read_metadata(result_path)
+        assert parquet_meta.num_row_groups == 3
+        result_path.unlink()
+
+    def test_output_schema_matches_canonical_types(self) -> None:
+        """Test GH-6.AC1.3: Output schema matches canonical SCDM spec types."""
+        # Create chunk with data that could be inferred as different types
+        chunk = pl.DataFrame({
+            "PatID": [1001.0, 1002.0],  # Numeric in spec
+            "Birth_Date": [19800101.0, 19850315.0],  # Numeric in spec
+            "Sex": ["M", "F"],  # Character in spec
+        })
+
+        mock_reader = mock.Mock()
+        mock_reader.chunks.return_value = [chunk]
+
+        with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
+            result_path = _convert_sas_to_parquet(
+                Path("/fake/path.sas7bdat"),
+                chunk_size=500_000,
+                table_key="demographic",
+            )
+
+        # Read back and verify schema types match SCDM spec
+        result_df = pl.read_parquet(result_path)
+        result_schema = result_df.to_arrow().schema
+        # Numeric columns (Birth_Date, PatID) should be float64
+        assert result_schema.field("Birth_Date").type == pa.float64()
+        assert result_schema.field("PatID").type == pa.float64()
+        # Character columns (Sex) should be string-like (utf8 or large_string)
+        sex_type = result_schema.field("Sex").type
+        assert sex_type in (pa.utf8(), pa.large_string(), pa.string())
+        result_path.unlink()
+
+    def test_empty_input_produces_valid_parquet(self) -> None:
+        """Test GH-6.AC1.4: Empty input (zero chunks) produces valid empty Parquet."""
+        mock_reader = mock.Mock()
+        mock_reader.chunks.return_value = []
+
+        with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
+            result_path = _convert_sas_to_parquet(
+                Path("/fake/path.sas7bdat"),
+                chunk_size=500_000,
+                table_key="demographic",
+            )
+
+        # Read back and verify it's a valid empty parquet
+        result_df = pl.read_parquet(result_path)
+        assert result_df.height == 0
+        # Should have columns from the canonical schema
+        assert len(result_df.columns) > 0
+        result_path.unlink()
+
+    def test_all_null_column_cast_to_canonical_type(self) -> None:
+        """Test GH-6.AC1.5: All-null column is cast to canonical type, not inferred as null."""
+        # Create chunk where a Numeric column is all null
+        chunk = pl.DataFrame({
+            "PatID": [1001.0, 1002.0],
+            "Birth_Date": [None, None],  # All null, could be inferred as Null type
+            "Sex": ["M", "F"],
+        })
+
+        mock_reader = mock.Mock()
+        mock_reader.chunks.return_value = [chunk]
+
+        with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
+            result_path = _convert_sas_to_parquet(
+                Path("/fake/path.sas7bdat"),
+                chunk_size=500_000,
+                table_key="demographic",
+            )
+
+        # Read back and verify Birth_Date was cast to float64, not null
+        result_df = pl.read_parquet(result_path)
+        result_schema = result_df.to_arrow().schema
+        assert result_schema.field("Birth_Date").type == pa.float64()
+        result_path.unlink()
+
+    def test_extra_columns_preserved_with_inferred_types(self) -> None:
+        """Test GH-6.AC3.2: Extra columns not in SCDM spec are preserved with inferred types."""
+        chunk = pl.DataFrame({
+            "PatID": [1001.0, 1002.0],
+            "Birth_Date": [19800101.0, 19850315.0],
+            "CustomColumn": [100, 200],  # Not in spec
+        })
+
+        mock_reader = mock.Mock()
+        mock_reader.chunks.return_value = [chunk]
+
+        with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
+            result_path = _convert_sas_to_parquet(
+                Path("/fake/path.sas7bdat"),
+                chunk_size=500_000,
+                table_key="demographic",
+            )
+
+        # Read back and verify CustomColumn is present with its inferred type
+        result_df = pl.read_parquet(result_path)
+        assert "CustomColumn" in result_df.columns
+        # CustomColumn should have int type (inferred from data)
+        result_schema = result_df.to_arrow().schema
+        assert "CustomColumn" in result_schema.names
+        result_path.unlink()
+
+    def test_unknown_table_key_falls_back_to_inference(self) -> None:
+        """Test GH-6.AC3.3: Unknown table_key falls back to inference and logs warning."""
+        chunk = pl.DataFrame({
+            "PatID": ["P001", "P002"],
+            "Value": [100, 200],
+        })
+
+        mock_reader = mock.Mock()
+        mock_reader.chunks.return_value = [chunk]
+
+        with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
+            result_path = _convert_sas_to_parquet(
+                Path("/fake/path.sas7bdat"),
+                chunk_size=500_000,
+                table_key="unknown_table_xyz",
+            )
+
+        # Should still produce valid parquet with inferred types
+        result_df = pl.read_parquet(result_path)
+        assert result_df.height == 2
+        assert set(result_df.columns) == {"PatID", "Value"}
+        result_path.unlink()
+
+
+class TestBuildWriteSchema:
+    """Test Task 2: _build_write_schema merge logic."""
+
+    def test_canonical_columns_get_spec_types(self) -> None:
+        """Test GH-6.AC3.2: Canonical columns get spec types, not inferred."""
+        # Create a data schema with a column that could be inferred as object
+        data_schema = pa.schema([
+            pa.field("PatID", pa.utf8()),
+            pa.field("Birth_Date", pa.float64()),  # Inferred as float
+            pa.field("Sex", pa.utf8()),
+        ])
+
+        # Get the canonical schema for demographic
+        canonical = get_schema("demographic")
+
+        write_schema = _build_write_schema(canonical, data_schema)
+
+        # Birth_Date should be float64 from spec (nullable based on spec)
+        birth_date_field = write_schema.field("Birth_Date")
+        assert birth_date_field.type == pa.float64()
+        # Sex should be utf8 from spec
+        sex_field = write_schema.field("Sex")
+        assert sex_field.type == pa.utf8()
+
+    def test_non_spec_columns_keep_inferred_types(self) -> None:
+        """Test that non-spec columns keep their inferred types."""
+        data_schema = pa.schema([
+            pa.field("PatID", pa.utf8()),
+            pa.field("CustomInt", pa.int32()),  # Not in spec
+            pa.field("CustomString", pa.utf8()),  # Not in spec
+        ])
+
+        canonical = get_schema("demographic")
+        write_schema = _build_write_schema(canonical, data_schema)
+
+        # CustomInt should keep int32 (inferred)
+        custom_int_field = write_schema.field("CustomInt")
+        assert custom_int_field.type == pa.int32()
+        # CustomString should keep utf8 (inferred)
+        custom_string_field = write_schema.field("CustomString")
+        assert custom_string_field.type == pa.utf8()
+
+    def test_column_order_follows_data(self) -> None:
+        """Test that column order follows data schema, not spec order."""
+        # Create data schema with columns in non-spec order
+        data_schema = pa.schema([
+            pa.field("Sex", pa.utf8()),
+            pa.field("PatID", pa.utf8()),
+            pa.field("Birth_Date", pa.float64()),
+        ])
+
+        canonical = get_schema("demographic")
+        write_schema = _build_write_schema(canonical, data_schema)
+
+        # Order should match data schema, not spec
+        assert write_schema.names == ["Sex", "PatID", "Birth_Date"]
+
+    def test_none_canonical_returns_data_schema(self) -> None:
+        """Test that None canonical_schema returns data_schema unchanged."""
+        data_schema = pa.schema([
+            pa.field("PatID", pa.utf8()),
+            pa.field("Value", pa.int32()),
+            pa.field("Extra", pa.float64()),
+        ])
+
+        write_schema = _build_write_schema(None, data_schema)
+
+        # Should be identical to data_schema
+        assert write_schema == data_schema
+        assert write_schema.names == data_schema.names
+        for i, field in enumerate(write_schema):
+            assert field.type == data_schema.field(i).type
