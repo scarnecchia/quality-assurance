@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import TypedDict
-
 import duckdb
+import polars as pl
 import structlog
 
 from scdm_qa.schemas.checks import (
@@ -36,11 +35,6 @@ _TABLE_KEY_TO_SAS_ID: dict[str, str] = {
     "patient_reported_survey": "PRS",
     "inpatient_transfusion": "TXN",
 }
-
-
-class SortViolation(TypedDict):
-    chunk_boundary: str
-    issue: str
 
 
 def check_uniqueness(
