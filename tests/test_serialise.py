@@ -401,3 +401,50 @@ class TestSerialiseRunAC5:
         # Should be parseable back
         parsed = json.loads(json_str)
         assert parsed["schema_version"] == "1.0"
+
+    def test_ac5_1_temporal_columns_are_json_serialisable(self) -> None:
+        """Regression: date/datetime columns in failing_rows must not crash json.dumps."""
+        from datetime import date
+
+        failing_rows = pl.DataFrame({
+            "PatID": ["P001", "P002"],
+            "Enr_Start": [date(2020, 1, 1), date(2020, 6, 15)],
+            "Birth_Date": [date(2021, 1, 1), date(2021, 6, 15)],
+        })
+        step = StepResult(
+            step_index=1,
+            assertion_type="cross_date_compare",
+            column="Enr_Start",
+            description="Enr_Start before Birth_Date",
+            n_passed=0,
+            n_failed=2,
+            failing_rows=failing_rows,
+            check_id="205",
+            severity="Fail",
+        )
+        result = serialise_step(step, max_failing_rows=500)
+        # Must not raise TypeError
+        json_str = json.dumps(result)
+        parsed = json.loads(json_str)
+        assert len(parsed["failing_rows"]) == 2
+        assert isinstance(parsed["failing_rows"][0]["Enr_Start"], str)
+
+    def test_ac5_1_datetime_columns_are_json_serialisable(self) -> None:
+        """Regression: datetime columns in failing_rows must not crash json.dumps."""
+        failing_rows = pl.DataFrame({
+            "PatID": ["P001"],
+            "Timestamp": [datetime(2020, 1, 1, 12, 0, 0)],
+        })
+        step = StepResult(
+            step_index=1,
+            assertion_type="col_vals_not_null",
+            column="Timestamp",
+            description="Test datetime",
+            n_passed=99,
+            n_failed=1,
+            failing_rows=failing_rows,
+        )
+        result = serialise_step(step, max_failing_rows=500)
+        json_str = json.dumps(result)
+        parsed = json.loads(json_str)
+        assert isinstance(parsed["failing_rows"][0]["Timestamp"], str)

@@ -2,8 +2,23 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import polars as pl
+
 from scdm_qa.profiling.results import ProfilingResult
 from scdm_qa.validation.results import StepResult, ValidationResult
+
+
+def _cast_temporal_to_str(df: pl.DataFrame) -> pl.DataFrame:
+    """Cast Date, Datetime, Time, and Duration columns to strings for JSON safety."""
+    temporal_types = (pl.Date, pl.Datetime, pl.Time, pl.Duration)
+    casts = [
+        pl.col(col.name).cast(pl.Utf8)
+        for col in df.iter_columns()
+        if isinstance(col.dtype, temporal_types)
+    ]
+    if casts:
+        return df.with_columns(casts)
+    return df
 
 
 def serialise_step(step: StepResult, max_failing_rows: int) -> dict:
@@ -20,6 +35,7 @@ def serialise_step(step: StepResult, max_failing_rows: int) -> dict:
     failing_rows_list: list[dict] = []
     if step.failing_rows is not None:
         df_truncated = step.failing_rows.head(max_failing_rows)
+        df_truncated = _cast_temporal_to_str(df_truncated)
         failing_rows_list = df_truncated.to_dicts()
 
     return {
