@@ -7,6 +7,7 @@ from unittest import mock
 
 import polars as pl
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from scdm_qa.config import QAConfig
@@ -804,9 +805,6 @@ class TestStreamingSasConversion:
             )
 
         # Read parquet metadata
-        import pyarrow.parquet as pq
-
-        parquet_file = pq.read_table(result_path)
         parquet_meta = pq.read_metadata(result_path)
         assert parquet_meta.num_row_groups == 3
         result_path.unlink()
