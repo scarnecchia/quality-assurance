@@ -9,11 +9,20 @@ from scdm_qa.config import QAConfig
 from scdm_qa.profiling.accumulator import ProfilingAccumulator
 from scdm_qa.profiling.results import ProfilingResult
 from scdm_qa.readers import create_reader
-from scdm_qa.reporting.builder import save_table_report
-from scdm_qa.reporting.index import ReportSummary, make_report_summary, save_index
+from scdm_qa.reporting.dashboard import save_dashboard
 from scdm_qa.schemas import get_schema
+from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.schemas.custom_rules import load_custom_rules
-from scdm_qa.validation.global_checks import check_sort_order, check_uniqueness
+from scdm_qa.validation.global_checks import (
+    check_cause_of_death,
+    check_date_ordering,
+    check_enc_combinations,
+    check_enrollment_gaps,
+    check_not_populated,
+    check_overlapping_spans,
+    check_sort_order,
+    check_uniqueness,
+)
 from scdm_qa.validation.results import StepResult, ValidationResult
 from scdm_qa.validation.runner import run_validation
 
@@ -43,66 +52,87 @@ def run_pipeline(
         tables = {table_filter: tables[table_filter]}
 
     outcomes: list[TableOutcome] = []
-    report_summaries: list[ReportSummary] = []
+    dashboard_results: list[tuple[ValidationResult, ProfilingResult]] = []
 
-    for table_key, file_path in tables.items():
-        log.info("processing table", table=table_key, file=str(file_path))
+    # L1: Per-table validation
+    if config.run_l1:
+        for table_key, file_path in tables.items():
+            log.info("processing table", table=table_key, file=str(file_path))
+            try:
+                outcome = _process_table(
+                    table_key,
+                    file_path,
+                    config,
+                    profile_only=profile_only,
+                )
+                outcomes.append(outcome)
+
+                if outcome.validation_result and outcome.profiling_result:
+                    dashboard_results.append((outcome.validation_result, outcome.profiling_result))
+                elif outcome.profiling_result:
+                    # Profile-only mode: create a report with just profiling data
+                    empty_vr = ValidationResult(
+                        table_key=table_key,
+                        table_name=outcome.profiling_result.table_name,
+                        steps=(),
+                        total_rows=outcome.profiling_result.total_rows,
+                        chunks_processed=0,
+                    )
+                    dashboard_results.append((empty_vr, outcome.profiling_result))
+
+            except Exception as exc:
+                log.error("table processing failed", table=table_key, error=str(exc))
+                outcomes.append(TableOutcome(table_key=table_key, success=False, error=str(exc)))
+
+    # L2: Cross-table validation
+    if config.run_l2 and not profile_only:
         try:
-            outcome = _process_table(
-                table_key,
-                file_path,
-                config,
-                profile_only=profile_only,
-            )
-            outcomes.append(outcome)
+            from scdm_qa.schemas.cross_table_checks import get_cross_table_checks, get_checks_for_table
+            from scdm_qa.validation.cross_table import run_cross_table_checks
 
-            if outcome.validation_result and outcome.profiling_result:
-                save_table_report(
-                    config.output_dir,
-                    table_key,
-                    outcome.validation_result,
-                    outcome.profiling_result,
+            if table_filter:
+                all_checks = get_checks_for_table(table_filter)
+            else:
+                all_checks = get_cross_table_checks()
+
+            if all_checks:
+                cross_table_steps = run_cross_table_checks(
+                    config, all_checks, table_filter=table_filter,
                 )
-                report_summaries.append(
-                    make_report_summary(
-                        table_key,
-                        outcome.validation_result.table_name,
-                        outcome.validation_result.total_rows,
-                        len(outcome.validation_result.steps),
-                        outcome.validation_result.total_failures,
+
+                if cross_table_steps:
+                    cross_table_vr = ValidationResult(
+                        table_key="cross_table",
+                        table_name="Cross-Table Checks",
+                        steps=tuple(cross_table_steps),
+                        total_rows=0,
+                        chunks_processed=0,
                     )
-                )
-            elif outcome.profiling_result:
-                # Profile-only mode: create a report with just profiling data
-                empty_vr = ValidationResult(
-                    table_key=table_key,
-                    table_name=outcome.profiling_result.table_name,
-                    steps=(),
-                    total_rows=outcome.profiling_result.total_rows,
-                    chunks_processed=0,
-                )
-                save_table_report(
-                    config.output_dir,
-                    table_key,
-                    empty_vr,
-                    outcome.profiling_result,
-                )
-                report_summaries.append(
-                    make_report_summary(
-                        table_key,
-                        outcome.profiling_result.table_name,
-                        outcome.profiling_result.total_rows,
-                        0,
-                        0,
+                    outcomes.append(TableOutcome(
+                        table_key="cross_table",
+                        success=True,
+                        validation_result=cross_table_vr,
+                    ))
+
+                    # Generate report for cross-table results
+                    empty_profiling = ProfilingResult(
+                        table_key="cross_table",
+                        table_name="Cross-Table Checks",
+                        total_rows=0,
+                        columns=(),
                     )
-                )
+                    dashboard_results.append((cross_table_vr, empty_profiling))
 
         except Exception as exc:
-            log.error("table processing failed", table=table_key, error=str(exc))
-            outcomes.append(TableOutcome(table_key=table_key, success=False, error=str(exc)))
+            log.error("cross-table validation failed", error=str(exc))
+            outcomes.append(TableOutcome(table_key="cross_table", success=False, error=str(exc)))
 
-    if report_summaries:
-        save_index(config.output_dir, report_summaries)
+    if dashboard_results:
+        save_dashboard(
+            config.output_dir,
+            dashboard_results,
+            max_failing_rows=config.max_failing_rows,
+        )
 
     return outcomes
 
@@ -153,6 +183,9 @@ def _process_table(
             schema,
             chunks=uniqueness_reader.chunks(),
             max_failing_rows=config.max_failing_rows,
+            duckdb_memory_limit=config.duckdb_memory_limit,
+            duckdb_threads=config.duckdb_threads,
+            duckdb_temp_directory=config.duckdb_temp_directory,
         )
         if uniqueness_step is not None:
             global_steps.append(uniqueness_step)
@@ -164,6 +197,54 @@ def _process_table(
         sort_step = check_sort_order(schema, sort_reader.chunks())
         if sort_step is not None:
             global_steps.append(sort_step)
+
+    if get_not_populated_checks_for_table(schema.table_key):
+        # L1 global check: not populated (check 111)
+        not_pop_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        not_pop_steps = check_not_populated(schema, not_pop_reader.chunks())
+        global_steps.extend(not_pop_steps)
+
+    # L2 check: date ordering (check 226)
+    if get_date_ordering_checks_for_table(schema.table_key):
+        date_order_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        date_order_steps = check_date_ordering(schema, date_order_reader.chunks(), max_failing_rows=config.max_failing_rows)
+        global_steps.extend(date_order_steps)
+
+    # L2 check: cause of death (checks 236, 237)
+    if schema.table_key == "cause_of_death":
+        cod_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        cod_steps = check_cause_of_death(schema, cod_reader.chunks(), max_failing_rows=config.max_failing_rows)
+        global_steps.extend(cod_steps)
+
+    # L2 checks: enrollment overlaps and gaps (checks 215, 216)
+    if schema.table_key == "enrollment":
+        overlap_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        overlap_step = check_overlapping_spans(
+            file_path, schema, overlap_reader.chunks(),
+            max_failing_rows=config.max_failing_rows,
+            duckdb_memory_limit=config.duckdb_memory_limit,
+            duckdb_threads=config.duckdb_threads,
+            duckdb_temp_directory=config.duckdb_temp_directory,
+        )
+        if overlap_step is not None:
+            global_steps.append(overlap_step)
+
+        gaps_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        gaps_step = check_enrollment_gaps(
+            schema, gaps_reader.chunks(),
+            max_failing_rows=config.max_failing_rows,
+        )
+        if gaps_step is not None:
+            global_steps.append(gaps_step)
+
+    # L2 checks: ENC field combinations (checks 244, 245)
+    if schema.table_key == "encounter":
+        enc_combo_reader = create_reader(file_path, chunk_size=config.chunk_size)
+        enc_combo_steps = check_enc_combinations(
+            schema, enc_combo_reader.chunks(),
+            max_failing_rows=config.max_failing_rows,
+        )
+        global_steps.extend(enc_combo_steps)
 
     if global_steps:
         all_steps = list(validation_result.steps) + global_steps
@@ -190,10 +271,15 @@ def compute_exit_code(
 ) -> int:
     """Compute CLI exit code from pipeline outcomes.
 
+    Severity-aware:
+        - Note: informational only, never escalates exit code
+        - Warn: failures contribute to exit code 1
+        - Fail (or None): failures contribute to exit code 1; threshold exceedance → 2
+
     Returns:
-        0: all checks pass (no failures)
+        0: all checks pass (no failures in non-Note checks)
         1: some failures exist but all within threshold (warnings)
-        2: processing errors or at least one step exceeds error threshold
+        2: processing errors or at least one Fail/None step exceeds error threshold
     """
     has_errors = any(not o.success for o in outcomes)
     if has_errors:
@@ -206,9 +292,14 @@ def compute_exit_code(
         if o.validation_result is None:
             continue
         for step in o.validation_result.steps:
+            # Note-severity checks are informational — skip for exit code
+            if step.severity == "Note":
+                continue
             if step.n_failed > 0:
                 has_failures = True
-                if step.f_failed > error_threshold:
+                # Only Fail/None severity can escalate to exit 2 on threshold exceedance
+                # Warn checks cap at exit 1
+                if step.severity != "Warn" and step.f_failed > error_threshold:
                     has_threshold_exceedance = True
 
     if has_threshold_exceedance:

@@ -6,10 +6,37 @@ from typing import Iterator, TypedDict
 import polars as pl
 import structlog
 
+from scdm_qa.schemas.checks import (
+    ENC_COMBINATION_RULES,
+    ENC_RATE_THRESHOLDS,
+    get_date_ordering_checks_for_table,
+    get_not_populated_checks_for_table,
+)
 from scdm_qa.schemas.models import TableSchema
 from scdm_qa.validation.results import StepResult
 
 log = structlog.get_logger(__name__)
+
+# Maps internal table_key to SAS short table ID used in flag descriptions.
+_TABLE_KEY_TO_SAS_ID: dict[str, str] = {
+    "cause_of_death": "COD",
+    "death": "DTH",
+    "demographic": "DEM",
+    "diagnosis": "DIA",
+    "dispensing": "DIS",
+    "encounter": "ENC",
+    "enrollment": "ENR",
+    "facility": "FAC",
+    "inpatient_pharmacy": "IRX",
+    "laboratory": "LAB",
+    "prescribing": "PRE",
+    "procedure": "PRO",
+    "provider": "PVD",
+    "vital_signs": "VIT",
+    "patient_reported_response": "PRR",
+    "patient_reported_survey": "PRS",
+    "inpatient_transfusion": "TXN",
+}
 
 
 class SortViolation(TypedDict):
@@ -23,15 +50,23 @@ def check_uniqueness(
     chunks: Iterator[pl.DataFrame] | None = None,
     *,
     max_failing_rows: int = 500,
+    duckdb_memory_limit: str = "96GB",
+    duckdb_threads: int = 10,
+    duckdb_temp_directory: Path | None = None,
 ) -> StepResult | None:
     if not schema.unique_row:
         return None
 
     key_cols = list(schema.unique_row)
-    description = f"Uniqueness on ({', '.join(key_cols)})"
+    description = f"Duplicate record(s) present for unique key variable(s): {', '.join(key_cols)}"
 
     if file_path.suffix.lower() == ".parquet":
-        result = _uniqueness_duckdb(file_path, key_cols, description, max_failing_rows)
+        result = _uniqueness_duckdb(
+            file_path, key_cols, description, max_failing_rows,
+            memory_limit=duckdb_memory_limit,
+            threads=duckdb_threads,
+            temp_directory=duckdb_temp_directory,
+        )
         if result is not None:
             return result
         log.info("duckdb not available, falling back to in-memory uniqueness check")
@@ -44,9 +79,13 @@ def _uniqueness_duckdb(
     key_cols: list[str],
     description: str,
     max_failing_rows: int,
+    *,
+    memory_limit: str = "96GB",
+    threads: int = 10,
+    temp_directory: Path | None = None,
 ) -> StepResult | None:
     try:
-        import duckdb
+        from scdm_qa.validation.duckdb_utils import create_connection
     except ImportError:
         return None
 
@@ -70,7 +109,11 @@ def _uniqueness_duckdb(
         )
     """
 
-    conn = duckdb.connect()
+    conn = create_connection(
+        memory_limit=memory_limit,
+        threads=threads,
+        temp_directory=temp_directory,
+    )
     try:
         try:
             total_rows = conn.execute(total_query).fetchone()[0]
@@ -100,6 +143,8 @@ def _uniqueness_duckdb(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_df if failing_df.height > 0 else None,
+        check_id="211",
+        severity="Fail",
     )
 
 
@@ -147,6 +192,8 @@ def _uniqueness_in_memory(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_rows,
+        check_id="211",
+        severity="Fail",
     )
 
 
@@ -158,7 +205,8 @@ def check_sort_order(
         return None
 
     sort_cols = list(schema.sort_order)
-    description = f"Sort order on ({', '.join(sort_cols)})"
+    sas_id = _TABLE_KEY_TO_SAS_ID.get(schema.table_key, schema.table_key.upper())
+    description = f"{sas_id} table is not sorted by the following variables: {', '.join(sort_cols)}"
 
     prev_last_row: pl.DataFrame | None = None
     violations: list[SortViolation] = []
@@ -198,6 +246,8 @@ def check_sort_order(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_rows,
+        check_id="102",
+        severity="Fail",
     )
 
 
@@ -216,3 +266,532 @@ def _is_sorted_boundary(
         if last_val > first_val:
             return False
     return True  # equal is OK
+
+
+def check_not_populated(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+) -> list[StepResult]:
+    """Check 111: Detect columns that are entirely null across all chunks.
+
+    Returns one StepResult per target column defined in the check registry.
+    """
+    check_defs = get_not_populated_checks_for_table(schema.table_key)
+    if not check_defs:
+        return []
+
+    target_columns = [c.column for c in check_defs]
+    non_null_counts: dict[str, int] = {col: 0 for col in target_columns}
+    total_rows = 0
+
+    for chunk in chunks:
+        total_rows += chunk.height
+        for col_name in target_columns:
+            if col_name in chunk.columns:
+                non_null_counts[col_name] += chunk[col_name].drop_nulls().len()
+
+    results: list[StepResult] = []
+    for check_def in check_defs:
+        count = non_null_counts.get(check_def.column, 0)
+        if count == 0:
+            # Column is entirely null — not populated
+            n_failed = total_rows
+            n_passed = 0
+        else:
+            n_failed = 0
+            n_passed = total_rows
+
+        results.append(
+            StepResult(
+                step_index=-1,
+                assertion_type="not_populated",
+                column=check_def.column,
+                description=f"{check_def.column} populated (check {check_def.check_id})",
+                n_passed=n_passed,
+                n_failed=n_failed,
+                failing_rows=None,
+                check_id=check_def.check_id,
+                severity=check_def.severity,
+            )
+        )
+
+    return results
+
+
+def check_date_ordering(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> list[StepResult]:
+    """Check 226: Detect rows where date_a > date_b.
+
+    Rows where either date is null are skipped (not flagged).
+    Returns one StepResult per configured date pair.
+    """
+    ordering_defs = get_date_ordering_checks_for_table(schema.table_key)
+    if not ordering_defs:
+        return []
+
+    # Accumulate per-pair counts across chunks
+    pair_failed: dict[str, int] = {}
+    pair_passed: dict[str, int] = {}
+    pair_failing_rows: dict[str, list[pl.DataFrame]] = {}
+    pair_failing_count: dict[str, int] = {}
+
+    for pair_def in ordering_defs:
+        key = f"{pair_def.date_a}>{pair_def.date_b}"
+        pair_failed[key] = 0
+        pair_passed[key] = 0
+        pair_failing_rows[key] = []
+        pair_failing_count[key] = 0
+
+    for chunk in chunks:
+        for pair_def in ordering_defs:
+            if pair_def.date_a not in chunk.columns or pair_def.date_b not in chunk.columns:
+                continue
+
+            key = f"{pair_def.date_a}>{pair_def.date_b}"
+
+            # Filter to rows where both dates are non-null
+            both_present = chunk.filter(
+                pl.col(pair_def.date_a).is_not_null() & pl.col(pair_def.date_b).is_not_null()
+            )
+
+            violations = both_present.filter(
+                pl.col(pair_def.date_a) > pl.col(pair_def.date_b)
+            )
+
+            pair_failed[key] += violations.height
+            pair_passed[key] += both_present.height - violations.height
+
+            if violations.height > 0 and pair_failing_count[key] < max_failing_rows:
+                remaining = max_failing_rows - pair_failing_count[key]
+                sample = violations.head(remaining)
+                pair_failing_rows[key].append(sample)
+                pair_failing_count[key] += sample.height
+
+    results: list[StepResult] = []
+    for pair_def in ordering_defs:
+        key = f"{pair_def.date_a}>{pair_def.date_b}"
+        failing = None
+        if pair_failing_rows[key]:
+            failing = pl.concat(pair_failing_rows[key])
+
+        results.append(
+            StepResult(
+                step_index=-1,
+                assertion_type="date_ordering",
+                column=f"{pair_def.date_a}, {pair_def.date_b}",
+                description=f"{pair_def.description} (check {pair_def.check_id})",
+                n_passed=pair_passed[key],
+                n_failed=pair_failed[key],
+                failing_rows=failing,
+                check_id=pair_def.check_id,
+                severity=pair_def.severity,
+            )
+        )
+
+    return results
+
+
+def check_cause_of_death(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> list[StepResult]:
+    """Checks 236 and 237: Validate underlying cause of death records.
+
+    236: Each patient in COD must have at least one CauseType='U' record.
+    237: Each patient in COD must have at most one CauseType='U' record.
+
+    Returns two StepResults (236 first, then 237).
+    """
+    if schema.table_key != "cause_of_death":
+        return []
+
+    # Accumulate all PatID + CauseType across chunks
+    all_records: list[pl.DataFrame] = []
+    for chunk in chunks:
+        if "PatID" in chunk.columns and "CauseType" in chunk.columns:
+            all_records.append(chunk.select("PatID", "CauseType"))
+
+    if not all_records:
+        return []
+
+    combined = pl.concat(all_records)
+
+    # Count CauseType='U' records per patient
+    u_counts = (
+        combined.filter(pl.col("CauseType") == "U")
+        .group_by("PatID")
+        .agg(pl.len().alias("u_count"))
+    )
+
+    all_patients = combined.select("PatID").unique()
+    total_patients = all_patients.height
+
+    # Join to get u_count per patient (patients not in u_counts have 0)
+    patient_u = all_patients.join(u_counts, on="PatID", how="left").with_columns(
+        pl.col("u_count").fill_null(0)
+    )
+
+    # Check 236: patients with zero CauseType='U'
+    missing_u = patient_u.filter(pl.col("u_count") == 0)
+    n_failed_236 = missing_u.height
+    n_passed_236 = total_patients - n_failed_236
+    failing_236 = missing_u.head(max_failing_rows) if missing_u.height > 0 else None
+
+    # Check 237: patients with more than one CauseType='U'
+    multiple_u = patient_u.filter(pl.col("u_count") > 1)
+    n_failed_237 = multiple_u.height
+    n_passed_237 = total_patients - n_failed_237
+    failing_237 = multiple_u.head(max_failing_rows) if multiple_u.height > 0 else None
+
+    return [
+        StepResult(
+            step_index=-1,
+            assertion_type="cause_of_death",
+            column="CauseType",
+            description="Each patient has underlying cause of death (check 236)",
+            n_passed=n_passed_236,
+            n_failed=n_failed_236,
+            failing_rows=failing_236,
+            check_id="236",
+            severity="Fail",
+        ),
+        StepResult(
+            step_index=-1,
+            assertion_type="cause_of_death",
+            column="CauseType",
+            description="Each patient has at most one underlying cause of death (check 237)",
+            n_passed=n_passed_237,
+            n_failed=n_failed_237,
+            failing_rows=failing_237,
+            check_id="237",
+            severity="Fail",
+        ),
+    ]
+
+
+def check_overlapping_spans(
+    file_path: Path,
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame] | None = None,
+    *,
+    max_failing_rows: int = 500,
+    duckdb_memory_limit: str = "96GB",
+    duckdb_threads: int = 10,
+    duckdb_temp_directory: Path | None = None,
+) -> StepResult | None:
+    """Check 215: Detect overlapping enrollment spans within the same patient.
+
+    For each patient, sorts spans by Enr_Start and checks if any span's
+    Enr_Start is strictly less than the previous span's Enr_End.
+    """
+    if schema.table_key != "enrollment":
+        return None
+
+    # DuckDB fast path for Parquet files
+    if file_path.suffix.lower() == ".parquet":
+        result = _overlapping_spans_duckdb(
+            file_path, max_failing_rows,
+            memory_limit=duckdb_memory_limit,
+            threads=duckdb_threads,
+            temp_directory=duckdb_temp_directory,
+        )
+        if result is not None:
+            return result
+        log.info("duckdb not available, falling back to in-memory overlap check")
+
+    return _overlapping_spans_in_memory(chunks, max_failing_rows)
+
+
+def _overlapping_spans_duckdb(
+    file_path: Path,
+    max_failing_rows: int,
+    *,
+    memory_limit: str = "96GB",
+    threads: int = 10,
+    temp_directory: Path | None = None,
+) -> StepResult | None:
+    try:
+        from scdm_qa.validation.duckdb_utils import create_connection
+    except ImportError:
+        return None
+
+    safe_path = str(file_path).replace("'", "''")
+    # Self-join: find pairs where same patient has overlapping spans
+    overlap_query = f"""
+        WITH spans AS (
+            SELECT "PatID", "Enr_Start", "Enr_End",
+                   LAG("Enr_End") OVER (PARTITION BY "PatID" ORDER BY "Enr_Start") AS prev_end
+            FROM read_parquet('{safe_path}')
+        )
+        SELECT "PatID", "Enr_Start", "Enr_End", prev_end
+        FROM spans
+        WHERE "Enr_Start" < prev_end
+        LIMIT {max_failing_rows}
+    """
+    count_query = f"""
+        WITH spans AS (
+            SELECT "PatID", "Enr_Start", "Enr_End",
+                   LAG("Enr_End") OVER (PARTITION BY "PatID" ORDER BY "Enr_Start") AS prev_end
+            FROM read_parquet('{safe_path}')
+        )
+        SELECT COUNT(*) FROM spans WHERE "Enr_Start" < prev_end
+    """
+    total_query = f"SELECT COUNT(*) FROM read_parquet('{safe_path}')"
+
+    conn = create_connection(
+        memory_limit=memory_limit,
+        threads=threads,
+        temp_directory=temp_directory,
+    )
+    try:
+        try:
+            total_rows = conn.execute(total_query).fetchone()[0]
+            n_failed = conn.execute(count_query).fetchone()[0] or 0
+            failing_df = conn.execute(overlap_query).pl()
+        except Exception as e:
+            log.warning("duckdb overlap check failed", error=str(e))
+            return None
+    finally:
+        conn.close()
+
+    n_passed = total_rows - n_failed if total_rows > n_failed else 0
+
+    return StepResult(
+        step_index=-1,
+        assertion_type="overlapping_spans",
+        column="PatID, Enr_Start, Enr_End",
+        description="No overlapping enrollment spans (check 215)",
+        n_passed=n_passed,
+        n_failed=n_failed,
+        failing_rows=failing_df if failing_df.height > 0 else None,
+        check_id="215",
+        severity="Fail",
+    )
+
+
+def _overlapping_spans_in_memory(
+    chunks: Iterator[pl.DataFrame] | None,
+    max_failing_rows: int,
+) -> StepResult | None:
+    if chunks is None:
+        return None
+
+    all_spans: list[pl.DataFrame] = []
+    total_rows = 0
+
+    for chunk in chunks:
+        cols = ["PatID", "Enr_Start", "Enr_End"]
+        if all(c in chunk.columns for c in cols):
+            all_spans.append(chunk.select(cols))
+            total_rows += chunk.height
+
+    if not all_spans:
+        return None
+
+    combined = pl.concat(all_spans).sort("PatID", "Enr_Start")
+
+    # Detect overlaps: within each patient, Enr_Start < prev Enr_End
+    with_prev = combined.with_columns(
+        pl.col("Enr_End").shift(1).over("PatID").alias("prev_end")
+    )
+    overlaps = with_prev.filter(
+        pl.col("prev_end").is_not_null() & (pl.col("Enr_Start") < pl.col("prev_end"))
+    )
+
+    n_failed = overlaps.height
+    n_passed = total_rows - n_failed if total_rows > n_failed else 0
+
+    return StepResult(
+        step_index=-1,
+        assertion_type="overlapping_spans",
+        column="PatID, Enr_Start, Enr_End",
+        description="No overlapping enrollment spans (check 215)",
+        n_passed=n_passed,
+        n_failed=n_failed,
+        failing_rows=overlaps.head(max_failing_rows) if overlaps.height > 0 else None,
+        check_id="215",
+        severity="Fail",
+    )
+
+
+def check_enrollment_gaps(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> StepResult | None:
+    """Check 216: Detect non-bridged enrollment gaps.
+
+    For each patient, sorts spans by Enr_Start and checks for gaps where
+    previous Enr_End + 1 day < current Enr_Start. Adjacent spans
+    (Enr_End + 1 day == next Enr_Start) pass.
+
+    Handles both integer (SAS date) and pl.Date dtypes.
+    """
+    if schema.table_key != "enrollment":
+        return None
+
+    all_spans: list[pl.DataFrame] = []
+    total_rows = 0
+
+    for chunk in chunks:
+        cols = ["PatID", "Enr_Start", "Enr_End"]
+        if all(c in chunk.columns for c in cols):
+            all_spans.append(chunk.select(cols))
+            total_rows += chunk.height
+
+    if not all_spans:
+        return None
+
+    combined = pl.concat(all_spans).sort("PatID", "Enr_Start")
+
+    with_prev = combined.with_columns(
+        pl.col("Enr_End").shift(1).over("PatID").alias("prev_end")
+    )
+
+    # Gap: prev_end + 1 day < Enr_Start (more than 1 day between spans)
+    # Use dtype-aware increment: duration(days=1) for Date, +1 for integers
+    enr_dtype = combined["Enr_Start"].dtype
+    if enr_dtype == pl.Date or enr_dtype == pl.Datetime:
+        one_day = pl.duration(days=1)
+    else:
+        one_day = 1
+
+    gaps = with_prev.filter(
+        pl.col("prev_end").is_not_null() & ((pl.col("prev_end") + one_day) < pl.col("Enr_Start"))
+    )
+
+    n_failed = gaps.height
+    n_passed = total_rows - n_failed if total_rows > n_failed else 0
+
+    return StepResult(
+        step_index=-1,
+        assertion_type="enrollment_gaps",
+        column="PatID, Enr_Start, Enr_End",
+        description="No non-bridged enrollment gaps (check 216)",
+        n_passed=n_passed,
+        n_failed=n_failed,
+        failing_rows=gaps.head(max_failing_rows) if gaps.height > 0 else None,
+        check_id="216",
+        severity="Warn",
+    )
+
+
+def check_enc_combinations(
+    schema: TableSchema,
+    chunks: Iterator[pl.DataFrame],
+    *,
+    max_failing_rows: int = 500,
+) -> list[StepResult]:
+    """Checks 244 and 245: Validate ENC field combinations.
+
+    244: Flag rows not matching valid combination rules.
+    245: Flag EncType groups exceeding rate threshold for invalid combos.
+
+    Returns one StepResult for check 244, plus one per EncType threshold test for 245.
+    """
+    if schema.table_key != "encounter":
+        return []
+
+    required_cols = {"EncType", "DDate", "Discharge_Disposition", "Discharge_Status"}
+
+    all_rows: list[pl.DataFrame] = []
+    for chunk in chunks:
+        if required_cols.issubset(set(chunk.columns)):
+            all_rows.append(chunk.select(list(required_cols)))
+
+    if not all_rows:
+        return []
+
+    combined = pl.concat(all_rows)
+    total_rows = combined.height
+
+    # Derive ddate_state column
+    combined = combined.with_columns(
+        pl.when(pl.col("DDate").is_null())
+        .then(pl.lit("Null"))
+        .otherwise(pl.lit("Present"))
+        .alias("_ddate_state")
+    )
+
+    # Check each row against combination rules
+    # Build a boolean column: True if row is INVALID
+    invalid_mask = pl.lit(False)
+    for enc_type, (ddate_req, disp_req, status_req) in ENC_COMBINATION_RULES.items():
+        type_match = pl.col("EncType") == enc_type
+        violation = pl.lit(False)
+        if ddate_req:
+            violation = violation | (pl.col("_ddate_state") == "Null")
+        if disp_req:
+            violation = violation | pl.col("Discharge_Disposition").is_null()
+        if status_req:
+            violation = violation | pl.col("Discharge_Status").is_null()
+        invalid_mask = invalid_mask | (type_match & violation)
+
+    # Also flag unknown EncType values
+    known_types = list(ENC_COMBINATION_RULES.keys())
+    invalid_mask = invalid_mask | ~pl.col("EncType").is_in(known_types)
+
+    combined = combined.with_columns(invalid_mask.alias("_invalid"))
+    invalid_rows = combined.filter(pl.col("_invalid"))
+
+    # Check 244: per-row invalid combos
+    n_failed_244 = invalid_rows.height
+    n_passed_244 = total_rows - n_failed_244
+
+    failing_244 = None
+    if n_failed_244 > 0:
+        failing_244 = invalid_rows.drop("_ddate_state", "_invalid").head(max_failing_rows)
+
+    results: list[StepResult] = [
+        StepResult(
+            step_index=-1,
+            assertion_type="enc_combinations",
+            column="EncType, DDate, Discharge_Disposition, Discharge_Status",
+            description="Valid ENC field combination (check 244)",
+            n_passed=n_passed_244,
+            n_failed=n_failed_244,
+            failing_rows=failing_244,
+            check_id="244",
+            severity="Fail",
+        )
+    ]
+
+    # Check 245: rate threshold per EncType
+    for enc_type, threshold in ENC_RATE_THRESHOLDS.items():
+        type_rows = combined.filter(pl.col("EncType") == enc_type)
+        type_total = type_rows.height
+        if type_total == 0:
+            continue
+
+        type_invalid = type_rows.filter(pl.col("_invalid")).height
+        rate = type_invalid / type_total
+
+        if rate > threshold:
+            n_failed = type_invalid
+            n_passed = type_total - type_invalid
+        else:
+            n_failed = 0
+            n_passed = type_total
+
+        results.append(
+            StepResult(
+                step_index=-1,
+                assertion_type="enc_combination_rate",
+                column=f"EncType={enc_type}",
+                description=f"{enc_type} invalid combo rate {'>' if rate > threshold else '<='} {threshold:.0%} (check 245)",
+                n_passed=n_passed,
+                n_failed=n_failed,
+                failing_rows=None,
+                check_id="245",
+                severity="Fail",
+            )
+        )
+
+    return results

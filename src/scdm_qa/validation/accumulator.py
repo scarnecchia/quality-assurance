@@ -17,6 +17,8 @@ class _MutableStepAccum:
     n_failed: int = 0
     failing_rows: list[pl.DataFrame] = field(default_factory=list)
     failing_rows_count: int = 0
+    check_id: str | None = None
+    severity: str | None = None
 
 
 class ValidationAccumulator:
@@ -37,7 +39,7 @@ class ValidationAccumulator:
     def add_chunk_results(
         self,
         chunk_row_count: int,
-        step_descriptions: list[tuple[int, str, str, str]],
+        step_descriptions: list[tuple[int, str, str, str, str | None, str | None]],
         n_passed: dict[int, int],
         n_failed: dict[int, int],
         extracts: dict[int, pl.DataFrame],
@@ -45,13 +47,15 @@ class ValidationAccumulator:
         self._total_rows += chunk_row_count
         self._chunks_processed += 1
 
-        for step_index, assertion_type, column, description in step_descriptions:
+        for step_index, assertion_type, column, description, check_id, severity in step_descriptions:
             if step_index not in self._steps:
                 self._steps[step_index] = _MutableStepAccum(
                     step_index=step_index,
                     assertion_type=assertion_type,
                     column=column,
                     description=description,
+                    check_id=check_id,
+                    severity=severity,
                 )
 
             accum = self._steps[step_index]
@@ -82,6 +86,8 @@ class ValidationAccumulator:
                     n_passed=accum.n_passed,
                     n_failed=accum.n_failed,
                     failing_rows=failing,
+                    check_id=accum.check_id,
+                    severity=accum.severity,
                 )
             )
         return ValidationResult(

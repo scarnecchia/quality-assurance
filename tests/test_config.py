@@ -78,3 +78,99 @@ class TestQAConfig:
         cfg = QAConfig(tables={"a": Path("/a")})
         with pytest.raises(AttributeError):
             cfg.chunk_size = 999  # type: ignore[misc]
+
+
+class TestL1L2ConfigOptions:
+    def test_defaults_to_both_true(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[tables]\nenrollment = "/data/enrollment.parquet"\n')
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is True
+        assert cfg.run_l2 is True
+
+    def test_run_l1_false_run_l2_true(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l1 = false\nrun_l2 = true\n'
+        )
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is False
+        assert cfg.run_l2 is True
+
+    def test_run_l1_true_run_l2_false(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l1 = true\nrun_l2 = false\n'
+        )
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is True
+        assert cfg.run_l2 is False
+
+    def test_both_false(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l1 = false\nrun_l2 = false\n'
+        )
+        cfg = load_config(config_file)
+
+        assert cfg.run_l1 is False
+        assert cfg.run_l2 is False
+
+    def test_run_l1_invalid_type_string(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l1 = "yes"\n'
+        )
+        with pytest.raises(ConfigError, match="run_l1 must be a boolean, got: yes"):
+            load_config(config_file)
+
+    def test_run_l2_invalid_type_integer(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nrun_l2 = 1\n'
+        )
+        with pytest.raises(ConfigError, match="run_l2 must be a boolean, got: 1"):
+            load_config(config_file)
+
+
+class TestDuckDBConfigOptions:
+    def test_defaults(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[tables]\nenrollment = "/data/enrollment.parquet"\n')
+        cfg = load_config(config_file)
+
+        assert cfg.duckdb_memory_limit == "96GB"
+        assert cfg.duckdb_threads == 10
+        assert cfg.duckdb_temp_directory is None
+
+    def test_custom_values(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\n'
+            'duckdb_memory_limit = "4GB"\n'
+            'duckdb_threads = 2\n'
+            'duckdb_temp_directory = "/tmp/duckdb"\n'
+        )
+        cfg = load_config(config_file)
+
+        assert cfg.duckdb_memory_limit == "4GB"
+        assert cfg.duckdb_threads == 2
+        assert cfg.duckdb_temp_directory == Path("/tmp/duckdb")
+
+    def test_raises_on_invalid_threads(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[tables]\nenrollment = "/data/enrollment.parquet"\n\n'
+            '[options]\nduckdb_threads = -1\n'
+        )
+        with pytest.raises(ConfigError, match="duckdb_threads must be a positive integer"):
+            load_config(config_file)

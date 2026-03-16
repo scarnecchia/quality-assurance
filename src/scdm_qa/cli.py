@@ -4,6 +4,7 @@ import functools
 import http.server
 import threading
 import webbrowser
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -25,9 +26,21 @@ def run(
     config: Annotated[Path, typer.Argument(help="Path to TOML configuration file")],
     table: Annotated[Optional[str], typer.Option(help="Validate only this table")] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
+    l1_only: Annotated[bool, typer.Option("--l1-only", help="Run only per-table (L1) validation")] = False,
+    l2_only: Annotated[bool, typer.Option("--l2-only", help="Run only cross-table (L2) validation")] = False,
 ) -> None:
     """Validate SCDM tables and produce HTML reports."""
+    if l1_only and l2_only:
+        typer.echo("error: --l1-only and --l2-only are mutually exclusive", err=True)
+        raise typer.Exit(code=2)
+
     cfg = _load_and_configure(config, verbose)
+
+    if l1_only:
+        cfg = replace(cfg, run_l1=True, run_l2=False)
+    elif l2_only:
+        cfg = replace(cfg, run_l1=False, run_l2=True)
+
     log = get_logger("scdm_qa.cli")
     log.info("starting validation", tables=list(cfg.tables.keys()), table_filter=table)
 

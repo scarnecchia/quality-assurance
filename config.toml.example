@@ -1,0 +1,56 @@
+# SCDM Quality Assurance — Example Configuration
+#
+# Copy this file to config.toml and update the paths to your data files.
+# Run with: uv run scdm-qa run config.toml
+
+[tables]
+# Map SCDM table keys to file paths (parquet or sas7bdat).
+# Only include the tables you want to validate.
+demographic = "/path/to/demographic.parquet"
+enrollment = "/path/to/enrollment.parquet"
+diagnosis = "/path/to/diagnosis.parquet"
+procedure = "/path/to/procedure.parquet"
+encounter = "/path/to/encounter.parquet"
+dispensing = "/path/to/dispensing.parquet"
+# cause_of_death = "/path/to/cause_of_death.parquet"
+# inpatient_pharmacy = "/path/to/inpatient_pharmacy.parquet"
+# laboratory = "/path/to/laboratory.parquet"
+# prescribing = "/path/to/prescribing.parquet"
+# vital_signs = "/path/to/vital_signs.parquet"
+# inpatient_transfusion = "/path/to/inpatient_transfusion.parquet"
+# provider = "/path/to/provider.parquet"
+# facility = "/path/to/facility.parquet"
+# death = "/path/to/death.parquet"
+
+[options]
+# Directory for HTML report output
+output_dir = "./qa-reports"
+
+# Number of rows per validation chunk (higher = more memory, fewer passes)
+chunk_size = 500_000
+
+# Max failing rows to include in report extracts
+max_failing_rows = 500
+
+# Fraction of rows that can fail before exit code escalates (0.0–1.0)
+error_threshold = 0.05
+
+# Enable/disable validation phases independently
+# L1 = per-table checks (format, length, completeness, etc.)
+# L2 = cross-table checks (referential integrity, date comparisons, etc.)
+run_l1 = true
+run_l2 = true
+
+# Optional: directory containing custom pointblank rule files
+# custom_rules_dir = "./custom-rules"
+
+# Optional: structured log file path
+# log_file = "./scdm-qa.log"
+
+# Verbose console output
+verbose = false
+
+# DuckDB resource constraints (cross-table checks and uniqueness checks)
+# duckdb_memory_limit = "96GB"
+# duckdb_threads = 10
+# duckdb_temp_directory = "/tmp/scdm-qa-duckdb"

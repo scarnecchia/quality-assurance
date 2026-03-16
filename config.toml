@@ -29,3 +29,9 @@ error_threshold = 0.05
 # custom_rules_dir = "./custom_rules"
 log_file = "./scdm-qa.log"
 # verbose = false
+
+# # Enable/disable validation phases independently
+# L1 = per-table checks (format, length, completeness, etc.)
+# L2 = cross-table checks (referential integrity, date comparisons, etc.)
+run_l1 = true
+run_l2 = true
