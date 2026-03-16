@@ -200,7 +200,7 @@ def _process_table(
             )
             log.debug("registered global check view", table=table_key)
 
-            # Existing chunk-based global checks (migrated to DuckDB in later phases)
+            # Global checks via DuckDB
             if schema.unique_row:
                 uniqueness_step = check_uniqueness(
                     conn,
