@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest import mock
 
@@ -909,7 +910,7 @@ class TestStreamingSasConversion:
         assert "CustomColumn" in result_schema.names
         result_path.unlink()
 
-    def test_unknown_table_key_falls_back_to_inference(self) -> None:
+    def test_unknown_table_key_falls_back_to_inference(self, caplog) -> None:
         """Test GH-6.AC3.3: Unknown table_key falls back to inference and logs warning."""
         chunk = pl.DataFrame({
             "PatID": ["P001", "P002"],
@@ -918,6 +919,9 @@ class TestStreamingSasConversion:
 
         mock_reader = mock.Mock()
         mock_reader.chunks.return_value = [chunk]
+
+        # Capture logs via stdlib logging which structlog integrates with
+        caplog.set_level(logging.WARNING)
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
             result_path = _convert_sas_to_parquet(
@@ -931,6 +935,17 @@ class TestStreamingSasConversion:
         assert result_df.height == 2
         assert set(result_df.columns) == {"PatID", "Value"}
         result_path.unlink()
+
+        # Assert warning was logged containing the unknown table key
+        # structlog logs through stdlib.BoundLogger which registers with logging module
+        assert any(
+            "no SCDM spec for table" in record.message
+            and record.levelname == "WARNING"
+            for record in caplog.records
+        ), f"Expected warning about unknown table key, got: {[r.message for r in caplog.records]}"
+        # Verify table_key is in the log context
+        assert any("unknown_table_xyz" in str(record) for record in caplog.records), \
+            f"Expected 'unknown_table_xyz' in log records"
 
 
 class TestBuildWriteSchema:
