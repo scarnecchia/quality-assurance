@@ -118,8 +118,9 @@ def check_uniqueness(
 
 
 def check_sort_order(
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame],
 ) -> StepResult | None:
     if not schema.sort_order:
         return None
@@ -127,36 +128,71 @@ def check_sort_order(
     sort_cols = list(schema.sort_order)
     sas_id = _TABLE_KEY_TO_SAS_ID.get(schema.table_key, schema.table_key.upper())
     description = f"{sas_id} table is not sorted by the following variables: {', '.join(sort_cols)}"
+    safe_view = view_name.replace('"', '""')
 
-    prev_last_row: pl.DataFrame | None = None
-    violations: list[SortViolation] = []
-    total_rows = 0
-    chunk_num = 0
+    try:
+        total_rows = conn.execute(
+            f'SELECT COUNT(*) FROM "{safe_view}"'
+        ).fetchone()[0]
 
-    for chunk in chunks:
-        chunk_num += 1
-        present_cols = [c for c in sort_cols if c in chunk.columns]
-        if len(present_cols) != len(sort_cols):
-            continue
+        # Build LAG-based comparison for each sort column.
+        # A row is a violation if any column is strictly less than the
+        # previous row's value AND all higher-priority columns are equal.
+        # This mirrors multi-column sort comparison.
+        lag_cols = []
+        for col in sort_cols:
+            safe_col = col.replace('"', '""')
+            lag_cols.append(
+                f'LAG("{safe_col}") OVER () AS "_prev_{safe_col}"'
+            )
 
-        total_rows += chunk.height
+        lag_select = ", ".join(lag_cols)
 
-        if prev_last_row is not None:
-            first_row = chunk.select(present_cols).head(1)
-            if not _is_sorted_boundary(prev_last_row, first_row, present_cols):
-                violations.append({
-                    "chunk_boundary": f"{chunk_num - 1}-{chunk_num}",
-                    "issue": "sort order break at chunk boundary",
-                })
+        # Build violation condition: for multi-column sort, a violation
+        # occurs when, scanning left to right, the first column that
+        # differs has decreased.
+        conditions = []
+        for i, col in enumerate(sort_cols):
+            safe_col = col.replace('"', '""')
+            # All prior columns are equal
+            equal_prefix = " AND ".join(
+                f'"{sort_cols[j].replace(chr(34), chr(34)+chr(34))}" = "_prev_{sort_cols[j].replace(chr(34), chr(34)+chr(34))}"'
+                for j in range(i)
+            )
+            cond = f'"{safe_col}" < "_prev_{safe_col}"'
+            if equal_prefix:
+                cond = f"({equal_prefix} AND {cond})"
+            conditions.append(cond)
 
-        prev_last_row = chunk.select(present_cols).tail(1)
+        violation_where = " OR ".join(f"({c})" for c in conditions)
 
-    n_failed = len(violations)
-    n_passed = max(0, chunk_num - 1 - n_failed) if chunk_num > 1 else 0
+        n_failed = conn.execute(f"""
+            WITH lagged AS (
+                SELECT {lag_select},
+                       {", ".join(f'"{c}"' for c in sort_cols)}
+                FROM "{safe_view}"
+            )
+            SELECT COUNT(*) FROM lagged
+            WHERE {violation_where}
+        """).fetchone()[0] or 0
 
-    failing_rows = None
-    if violations:
-        failing_rows = pl.DataFrame(violations)
+    except duckdb.Error as e:
+        log.error("sort order check failed", error=str(e), view=view_name)
+        return StepResult(
+            step_index=-1,
+            assertion_type="sort_order",
+            column=", ".join(sort_cols),
+            description=f"Sort order check error: {e}",
+            n_passed=0,
+            n_failed=0,
+            failing_rows=None,
+            check_id="102",
+            severity="Fail",
+        )
+
+    # n_passed = rows that are not violations (total - failed).
+    # First row can never be a violation (no predecessor).
+    n_passed = total_rows - n_failed if total_rows > n_failed else 0
 
     return StepResult(
         step_index=-1,
@@ -165,56 +201,42 @@ def check_sort_order(
         description=description,
         n_passed=n_passed,
         n_failed=n_failed,
-        failing_rows=failing_rows,
+        failing_rows=None,
         check_id="102",
         severity="Fail",
     )
 
 
-def _is_sorted_boundary(
-    last_row: pl.DataFrame,
-    first_row: pl.DataFrame,
-    sort_cols: list[str],
-) -> bool:
-    for col in sort_cols:
-        last_val = last_row[col][0]
-        first_val = first_row[col][0]
-        if last_val is None or first_val is None:
-            continue
-        if last_val < first_val:
-            return True
-        if last_val > first_val:
-            return False
-    return True  # equal is OK
-
-
 def check_not_populated(
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame],
 ) -> list[StepResult]:
-    """Check 111: Detect columns that are entirely null across all chunks.
-
-    Returns one StepResult per target column defined in the check registry.
-    """
     check_defs = get_not_populated_checks_for_table(schema.table_key)
     if not check_defs:
         return []
 
-    target_columns = [c.column for c in check_defs]
-    non_null_counts: dict[str, int] = {col: 0 for col in target_columns}
-    total_rows = 0
+    safe_view = view_name.replace('"', '""')
 
-    for chunk in chunks:
-        total_rows += chunk.height
-        for col_name in target_columns:
-            if col_name in chunk.columns:
-                non_null_counts[col_name] += chunk[col_name].drop_nulls().len()
+    try:
+        total_rows = conn.execute(
+            f'SELECT COUNT(*) FROM "{safe_view}"'
+        ).fetchone()[0]
+    except duckdb.Error as e:
+        log.error("not populated check failed", error=str(e), view=view_name)
+        return []
 
     results: list[StepResult] = []
     for check_def in check_defs:
-        count = non_null_counts.get(check_def.column, 0)
-        if count == 0:
-            # Column is entirely null — not populated
+        safe_col = check_def.column.replace('"', '""')
+        try:
+            non_null_count = conn.execute(
+                f'SELECT COUNT("{safe_col}") FROM "{safe_view}"'
+            ).fetchone()[0]
+        except duckdb.Error:
+            non_null_count = 0
+
+        if non_null_count == 0:
             n_failed = total_rows
             n_passed = 0
         else:

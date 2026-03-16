@@ -212,14 +212,12 @@ def _process_table(
                     global_steps.append(uniqueness_step)
 
             if schema.sort_order:
-                sort_reader = create_reader(file_path, chunk_size=config.chunk_size)
-                sort_step = check_sort_order(schema, sort_reader.chunks())
+                sort_step = check_sort_order(conn, table_key, schema)
                 if sort_step is not None:
                     global_steps.append(sort_step)
 
             if get_not_populated_checks_for_table(schema.table_key):
-                not_pop_reader = create_reader(file_path, chunk_size=config.chunk_size)
-                not_pop_steps = check_not_populated(schema, not_pop_reader.chunks())
+                not_pop_steps = check_not_populated(conn, table_key, schema)
                 global_steps.extend(not_pop_steps)
 
             if get_date_ordering_checks_for_table(schema.table_key):
