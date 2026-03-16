@@ -10,14 +10,60 @@ from pathlib import Path
 
 import duckdb
 import polars as pl
+import pyarrow as pa
 
 from scdm_qa.config import QAConfig
 from scdm_qa.schemas import get_schema
-from scdm_qa.schemas.models import CrossTableCheckDef
+from scdm_qa.schemas.models import CrossTableCheckDef, TableSchema
 from scdm_qa.validation.duckdb_utils import create_connection
 from scdm_qa.validation.results import StepResult
 
 log = structlog.get_logger(__name__)
+
+_SCDM_TYPE_MAP: dict[str, pa.DataType] = {
+    "Numeric": pa.float64(),
+    "Character": pa.utf8(),
+}
+
+
+def build_arrow_schema(
+    table_schema: TableSchema,
+    *,
+    data_columns: tuple[str, ...] | None = None,
+) -> pa.Schema:
+    """Build a canonical pyarrow.Schema from an SCDM TableSchema.
+
+    Args:
+        table_schema: SCDM table definition with column types and nullability.
+        data_columns: If provided, only include spec columns present in this
+            sequence, ordered to match data column order. Columns in data but
+            not in spec are excluded (caller merges inferred types separately).
+
+    Returns:
+        pyarrow.Schema with canonical types for SCDM columns.
+
+    Raises:
+        ValueError: If a ColumnDef has an unrecognised col_type.
+    """
+    col_lookup = {c.name: c for c in table_schema.columns}
+
+    if data_columns is not None:
+        ordered_names = [n for n in data_columns if n in col_lookup]
+    else:
+        ordered_names = [c.name for c in table_schema.columns]
+
+    fields: list[pa.Field] = []
+    for name in ordered_names:
+        col_def = col_lookup[name]
+        arrow_type = _SCDM_TYPE_MAP.get(col_def.col_type)
+        if arrow_type is None:
+            raise ValueError(
+                f"unrecognised SCDM col_type {col_def.col_type!r} "
+                f"for column {col_def.name!r}"
+            )
+        fields.append(pa.field(name, arrow_type, nullable=col_def.missing_allowed))
+
+    return pa.schema(fields)
 
 
 def run_cross_table_checks(

@@ -8,8 +8,9 @@ import polars as pl
 import pytest
 
 from scdm_qa.config import QAConfig
-from scdm_qa.schemas.models import CrossTableCheckDef
-from scdm_qa.validation.cross_table import run_cross_table_checks
+from scdm_qa.schemas import get_schema
+from scdm_qa.schemas.models import CrossTableCheckDef, TableSchema, ColumnDef
+from scdm_qa.validation.cross_table import run_cross_table_checks, build_arrow_schema
 
 
 @pytest.fixture
@@ -662,3 +663,109 @@ class TestTableFiltering:
         )
         # check1 should run because enrollment is its reference_table
         assert len(results) == 1
+
+
+class TestBuildArrowSchema:
+    """Test build_arrow_schema: SCDM-to-pyarrow schema conversion."""
+
+    def test_known_table_produces_correct_types(self) -> None:
+        """Test GH-6.AC3.1: Known SCDM table resolves to canonical pyarrow.Schema."""
+        pytest.importorskip("pyarrow")
+        import pyarrow as pa
+
+        schema = get_schema("demographic")
+        arrow_schema = build_arrow_schema(schema)
+
+        assert isinstance(arrow_schema, pa.Schema)
+        assert len(arrow_schema.names) > 0
+        # demographic should have multiple fields
+        assert "PatID" in arrow_schema.names
+
+    def test_numeric_columns_map_to_float64(self) -> None:
+        """Test numeric columns are mapped to pa.float64()."""
+        pytest.importorskip("pyarrow")
+        import pyarrow as pa
+
+        schema = get_schema("demographic")
+        arrow_schema = build_arrow_schema(schema)
+
+        # Find a known numeric column in demographic (e.g., Birth_Date)
+        birth_date_field = arrow_schema.field("Birth_Date")
+        assert birth_date_field.type == pa.float64()
+
+    def test_character_columns_map_to_utf8(self) -> None:
+        """Test character columns are mapped to pa.utf8()."""
+        pytest.importorskip("pyarrow")
+        import pyarrow as pa
+
+        schema = get_schema("demographic")
+        arrow_schema = build_arrow_schema(schema)
+
+        # Find a known character column in demographic (e.g., Sex)
+        sex_field = arrow_schema.field("Sex")
+        assert sex_field.type == pa.utf8()
+
+    def test_nullability_matches_missing_allowed(self) -> None:
+        """Test nullability in arrow schema matches ColumnDef.missing_allowed."""
+        pytest.importorskip("pyarrow")
+
+        schema = get_schema("demographic")
+        arrow_schema = build_arrow_schema(schema)
+
+        # Check that nullability matches the column definition
+        for col_def in schema.columns:
+            arrow_field = arrow_schema.field(col_def.name)
+            assert arrow_field.nullable == col_def.missing_allowed
+
+    def test_data_columns_filters_and_orders(self) -> None:
+        """Test data_columns parameter filters and orders columns."""
+        pytest.importorskip("pyarrow")
+
+        schema = get_schema("demographic")
+        # Specify a subset in a specific order
+        data_cols = ("PatID", "Birth_Date", "Hispanic")
+        arrow_schema = build_arrow_schema(schema, data_columns=data_cols)
+
+        # Schema should include only these columns in this order
+        assert arrow_schema.names == ["PatID", "Birth_Date", "Hispanic"]
+
+    def test_data_columns_excludes_non_spec_columns(self) -> None:
+        """Test that columns in data but not in spec are excluded."""
+        pytest.importorskip("pyarrow")
+
+        schema = get_schema("demographic")
+        # Include a column that exists in spec and one that doesn't
+        data_cols = ("PatID", "Birth_Date", "UnknownColumn", "Hispanic")
+        arrow_schema = build_arrow_schema(schema, data_columns=data_cols)
+
+        # UnknownColumn should not be in the schema
+        assert "UnknownColumn" not in arrow_schema.names
+        # Only spec columns should be present
+        assert set(arrow_schema.names) <= set(schema.column_names)
+
+    def test_unknown_col_type_raises_value_error(self) -> None:
+        """Test that unknown col_type raises ValueError."""
+        pytest.importorskip("pyarrow")
+
+        # Create a custom TableSchema with an unknown col_type
+        bad_col = ColumnDef(
+            name="BadColumn",
+            col_type="UnknownType",
+            missing_allowed=True,
+            length=None,
+            allowed_values=None,
+            definition="Test column with unknown type",
+            example="test",
+        )
+        bad_schema = TableSchema(
+            table_name="test_table",
+            table_key="test_table",
+            description="Test table",
+            sort_order=(),
+            unique_row=(),
+            columns=(bad_col,),
+            conditional_rules=(),
+        )
+
+        with pytest.raises(ValueError, match="unrecognised SCDM col_type"):
+            build_arrow_schema(bad_schema)
