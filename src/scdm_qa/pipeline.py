@@ -202,15 +202,11 @@ def _process_table(
 
             # Existing chunk-based global checks (migrated to DuckDB in later phases)
             if schema.unique_row:
-                uniqueness_reader = create_reader(file_path, chunk_size=config.chunk_size)
                 uniqueness_step = check_uniqueness(
-                    file_path,
+                    conn,
+                    table_key,
                     schema,
-                    chunks=uniqueness_reader.chunks(),
                     max_failing_rows=config.max_failing_rows,
-                    duckdb_memory_limit=config.duckdb_memory_limit,
-                    duckdb_threads=config.duckdb_threads,
-                    duckdb_temp_directory=config.duckdb_temp_directory,
                 )
                 if uniqueness_step is not None:
                     global_steps.append(uniqueness_step)
@@ -242,13 +238,11 @@ def _process_table(
                 global_steps.extend(cod_steps)
 
             if schema.table_key == "enrollment":
-                overlap_reader = create_reader(file_path, chunk_size=config.chunk_size)
                 overlap_step = check_overlapping_spans(
-                    file_path, schema, overlap_reader.chunks(),
+                    conn,
+                    table_key,
+                    schema,
                     max_failing_rows=config.max_failing_rows,
-                    duckdb_memory_limit=config.duckdb_memory_limit,
-                    duckdb_threads=config.duckdb_threads,
-                    duckdb_temp_directory=config.duckdb_temp_directory,
                 )
                 if overlap_step is not None:
                     global_steps.append(overlap_step)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator, TypedDict
 
+import duckdb
 import polars as pl
 import structlog
 
@@ -45,85 +46,54 @@ class SortViolation(TypedDict):
 
 
 def check_uniqueness(
-    file_path: Path,
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame] | None = None,
     *,
     max_failing_rows: int = 500,
-    duckdb_memory_limit: str = "96GB",
-    duckdb_threads: int = 10,
-    duckdb_temp_directory: Path | None = None,
 ) -> StepResult | None:
     if not schema.unique_row:
         return None
 
     key_cols = list(schema.unique_row)
     description = f"Duplicate record(s) present for unique key variable(s): {', '.join(key_cols)}"
-
-    if file_path.suffix.lower() == ".parquet":
-        result = _uniqueness_duckdb(
-            file_path, key_cols, description, max_failing_rows,
-            memory_limit=duckdb_memory_limit,
-            threads=duckdb_threads,
-            temp_directory=duckdb_temp_directory,
-        )
-        if result is not None:
-            return result
-        log.info("duckdb not available, falling back to in-memory uniqueness check")
-
-    return _uniqueness_in_memory(key_cols, description, chunks, max_failing_rows)
-
-
-def _uniqueness_duckdb(
-    file_path: Path,
-    key_cols: list[str],
-    description: str,
-    max_failing_rows: int,
-    *,
-    memory_limit: str = "96GB",
-    threads: int = 10,
-    temp_directory: Path | None = None,
-) -> StepResult | None:
-    try:
-        from scdm_qa.validation.duckdb_utils import create_connection
-    except ImportError:
-        return None
-
-    safe_path = str(file_path).replace("'", "''")
     cols_sql = ", ".join(f'"{c}"' for c in key_cols)
-    query = f"""
-        SELECT {cols_sql}, COUNT(*) AS _dup_count
-        FROM read_parquet('{safe_path}')
-        GROUP BY {cols_sql}
-        HAVING COUNT(*) > 1
-        LIMIT {max_failing_rows}
-    """
-    total_query = f"SELECT COUNT(*) FROM read_parquet('{safe_path}')"
+    safe_view = view_name.replace('"', '""')
 
-    dup_rows_query = f"""
-        SELECT SUM(_dup_count) FROM (
-            SELECT COUNT(*) AS _dup_count
-            FROM read_parquet('{safe_path}')
+    try:
+        total_rows = conn.execute(
+            f'SELECT COUNT(*) FROM "{safe_view}"'
+        ).fetchone()[0]
+
+        dup_row_total = conn.execute(f"""
+            SELECT COALESCE(SUM(_dup_count), 0) FROM (
+                SELECT COUNT(*) AS _dup_count
+                FROM "{safe_view}"
+                GROUP BY {cols_sql}
+                HAVING COUNT(*) > 1
+            )
+        """).fetchone()[0]
+
+        failing_df = conn.execute(f"""
+            SELECT {cols_sql}, COUNT(*) AS _dup_count
+            FROM "{safe_view}"
             GROUP BY {cols_sql}
             HAVING COUNT(*) > 1
+            LIMIT {max_failing_rows}
+        """).pl()
+    except duckdb.Error as e:
+        log.error("uniqueness check failed", error=str(e), view=view_name)
+        return StepResult(
+            step_index=-1,
+            assertion_type="rows_distinct",
+            column=", ".join(key_cols),
+            description=f"Uniqueness check error: {e}",
+            n_passed=0,
+            n_failed=0,
+            failing_rows=None,
+            check_id="211",
+            severity="Fail",
         )
-    """
-
-    conn = create_connection(
-        memory_limit=memory_limit,
-        threads=threads,
-        temp_directory=temp_directory,
-    )
-    try:
-        try:
-            total_rows = conn.execute(total_query).fetchone()[0]
-            dup_row_total = conn.execute(dup_rows_query).fetchone()[0] or 0
-            failing_df = conn.execute(query).pl()
-        except Exception as e:
-            log.warning("duckdb execution failed", error=str(e))
-            return None
-    finally:
-        conn.close()
 
     n_failed = dup_row_total
     n_passed = total_rows - n_failed if total_rows > n_failed else 0
@@ -136,62 +106,13 @@ def _uniqueness_duckdb(
     )
 
     return StepResult(
-        step_index=-1,  # will be renumbered when appended
-        assertion_type="rows_distinct",
-        column=", ".join(key_cols),
-        description=description,
-        n_passed=n_passed,
-        n_failed=n_failed,
-        failing_rows=failing_df if failing_df.height > 0 else None,
-        check_id="211",
-        severity="Fail",
-    )
-
-
-def _uniqueness_in_memory(
-    key_cols: list[str],
-    description: str,
-    chunks: Iterator[pl.DataFrame] | None,
-    max_failing_rows: int,
-) -> StepResult | None:
-    if chunks is None:
-        log.warning("no chunks provided for in-memory uniqueness check")
-        return None
-
-    all_keys: list[pl.DataFrame] = []
-    total_rows = 0
-
-    for chunk in chunks:
-        present_cols = [c for c in key_cols if c in chunk.columns]
-        if len(present_cols) != len(key_cols):
-            continue
-        all_keys.append(chunk.select(present_cols))
-        total_rows += chunk.height
-
-    if not all_keys:
-        return None
-
-    combined = pl.concat(all_keys)
-    duplicates = (
-        combined.group_by(key_cols)
-        .agg(pl.len().alias("_count"))
-        .filter(pl.col("_count") > 1)
-    )
-
-    # n_failed = total duplicate rows (not groups)
-    n_failed = duplicates["_count"].sum() if duplicates.height > 0 else 0
-    n_passed = total_rows - n_failed if total_rows > n_failed else 0
-
-    failing_rows = duplicates.head(max_failing_rows) if duplicates.height > 0 else None
-
-    return StepResult(
         step_index=-1,
         assertion_type="rows_distinct",
         column=", ".join(key_cols),
         description=description,
         n_passed=n_passed,
         n_failed=n_failed,
-        failing_rows=failing_rows,
+        failing_rows=failing_df if failing_df.height > 0 else None,
         check_id="211",
         severity="Fail",
     )
@@ -476,14 +397,11 @@ def check_cause_of_death(
 
 
 def check_overlapping_spans(
-    file_path: Path,
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame] | None = None,
     *,
     max_failing_rows: int = 500,
-    duckdb_memory_limit: str = "96GB",
-    duckdb_threads: int = 10,
-    duckdb_temp_directory: Path | None = None,
 ) -> StepResult | None:
     """Check 215: Detect overlapping enrollment spans within the same patient.
 
@@ -493,72 +411,50 @@ def check_overlapping_spans(
     if schema.table_key != "enrollment":
         return None
 
-    # DuckDB fast path for Parquet files
-    if file_path.suffix.lower() == ".parquet":
-        result = _overlapping_spans_duckdb(
-            file_path, max_failing_rows,
-            memory_limit=duckdb_memory_limit,
-            threads=duckdb_threads,
-            temp_directory=duckdb_temp_directory,
-        )
-        if result is not None:
-            return result
-        log.info("duckdb not available, falling back to in-memory overlap check")
+    safe_view = view_name.replace('"', '""')
 
-    return _overlapping_spans_in_memory(chunks, max_failing_rows)
-
-
-def _overlapping_spans_duckdb(
-    file_path: Path,
-    max_failing_rows: int,
-    *,
-    memory_limit: str = "96GB",
-    threads: int = 10,
-    temp_directory: Path | None = None,
-) -> StepResult | None:
     try:
-        from scdm_qa.validation.duckdb_utils import create_connection
-    except ImportError:
-        return None
+        total_rows = conn.execute(
+            f'SELECT COUNT(*) FROM "{safe_view}"'
+        ).fetchone()[0]
 
-    safe_path = str(file_path).replace("'", "''")
-    # Self-join: find pairs where same patient has overlapping spans
-    overlap_query = f"""
-        WITH spans AS (
-            SELECT "PatID", "Enr_Start", "Enr_End",
-                   LAG("Enr_End") OVER (PARTITION BY "PatID" ORDER BY "Enr_Start") AS prev_end
-            FROM read_parquet('{safe_path}')
-        )
-        SELECT "PatID", "Enr_Start", "Enr_End", prev_end
-        FROM spans
-        WHERE "Enr_Start" < prev_end
-        LIMIT {max_failing_rows}
-    """
-    count_query = f"""
-        WITH spans AS (
-            SELECT "PatID", "Enr_Start", "Enr_End",
-                   LAG("Enr_End") OVER (PARTITION BY "PatID" ORDER BY "Enr_Start") AS prev_end
-            FROM read_parquet('{safe_path}')
-        )
-        SELECT COUNT(*) FROM spans WHERE "Enr_Start" < prev_end
-    """
-    total_query = f"SELECT COUNT(*) FROM read_parquet('{safe_path}')"
+        n_failed = conn.execute(f"""
+            WITH spans AS (
+                SELECT "PatID", "Enr_Start", "Enr_End",
+                       LAG("Enr_End") OVER (
+                           PARTITION BY "PatID" ORDER BY "Enr_Start"
+                       ) AS prev_end
+                FROM "{safe_view}"
+            )
+            SELECT COUNT(*) FROM spans WHERE "Enr_Start" < prev_end
+        """).fetchone()[0] or 0
 
-    conn = create_connection(
-        memory_limit=memory_limit,
-        threads=threads,
-        temp_directory=temp_directory,
-    )
-    try:
-        try:
-            total_rows = conn.execute(total_query).fetchone()[0]
-            n_failed = conn.execute(count_query).fetchone()[0] or 0
-            failing_df = conn.execute(overlap_query).pl()
-        except Exception as e:
-            log.warning("duckdb overlap check failed", error=str(e))
-            return None
-    finally:
-        conn.close()
+        failing_df = conn.execute(f"""
+            WITH spans AS (
+                SELECT "PatID", "Enr_Start", "Enr_End",
+                       LAG("Enr_End") OVER (
+                           PARTITION BY "PatID" ORDER BY "Enr_Start"
+                       ) AS prev_end
+                FROM "{safe_view}"
+            )
+            SELECT "PatID", "Enr_Start", "Enr_End", prev_end
+            FROM spans
+            WHERE "Enr_Start" < prev_end
+            LIMIT {max_failing_rows}
+        """).pl()
+    except duckdb.Error as e:
+        log.error("overlapping spans check failed", error=str(e), view=view_name)
+        return StepResult(
+            step_index=-1,
+            assertion_type="overlapping_spans",
+            column="PatID, Enr_Start, Enr_End",
+            description=f"Overlapping spans check error: {e}",
+            n_passed=0,
+            n_failed=0,
+            failing_rows=None,
+            check_id="215",
+            severity="Fail",
+        )
 
     n_passed = total_rows - n_failed if total_rows > n_failed else 0
 
@@ -570,51 +466,6 @@ def _overlapping_spans_duckdb(
         n_passed=n_passed,
         n_failed=n_failed,
         failing_rows=failing_df if failing_df.height > 0 else None,
-        check_id="215",
-        severity="Fail",
-    )
-
-
-def _overlapping_spans_in_memory(
-    chunks: Iterator[pl.DataFrame] | None,
-    max_failing_rows: int,
-) -> StepResult | None:
-    if chunks is None:
-        return None
-
-    all_spans: list[pl.DataFrame] = []
-    total_rows = 0
-
-    for chunk in chunks:
-        cols = ["PatID", "Enr_Start", "Enr_End"]
-        if all(c in chunk.columns for c in cols):
-            all_spans.append(chunk.select(cols))
-            total_rows += chunk.height
-
-    if not all_spans:
-        return None
-
-    combined = pl.concat(all_spans).sort("PatID", "Enr_Start")
-
-    # Detect overlaps: within each patient, Enr_Start < prev Enr_End
-    with_prev = combined.with_columns(
-        pl.col("Enr_End").shift(1).over("PatID").alias("prev_end")
-    )
-    overlaps = with_prev.filter(
-        pl.col("prev_end").is_not_null() & (pl.col("Enr_Start") < pl.col("prev_end"))
-    )
-
-    n_failed = overlaps.height
-    n_passed = total_rows - n_failed if total_rows > n_failed else 0
-
-    return StepResult(
-        step_index=-1,
-        assertion_type="overlapping_spans",
-        column="PatID, Enr_Start, Enr_End",
-        description="No overlapping enrollment spans (check 215)",
-        n_passed=n_passed,
-        n_failed=n_failed,
-        failing_rows=overlaps.head(max_failing_rows) if overlaps.height > 0 else None,
         check_id="215",
         severity="Fail",
     )
