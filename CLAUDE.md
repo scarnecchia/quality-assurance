@@ -1,11 +1,11 @@
 # SCDM Quality Assurance
 
-Last verified: 2026-03-11
+Last verified: 2026-03-16
 
 ## Tech Stack
 - Language: Python 3.12+
 - CLI: Typer
-- Data: Polars (DataFrames), pointblank (validation rules)
+- Data: Polars (DataFrames), DuckDB (global checks + cross-table), pointblank (validation rules)
 - Formats: Parquet (pyarrow), SAS7BDAT (pyreadstat)
 - Reporting: Jinja2, vendored Tabulator + Plotly (self-contained HTML dashboard)
 - Logging: structlog
@@ -40,7 +40,7 @@ Last verified: 2026-03-11
 - Chunks are `polars.DataFrame` throughout the pipeline
 - Validation uses pointblank for rule expression
 - Single-pass architecture: profiling runs inside the validation loop
-- Global checks (uniqueness, sort order, L1/L2 checks) require separate scans
+- Global checks (uniqueness, sort order, L1/L2 checks) run via DuckDB SQL against Parquet views; SAS files skip global checks
 - Pipeline runs in two phases: L1 (per-table) then L2 (cross-table); each can be run independently via `--l1-only` / `--l2-only` CLI flags or `run_l1` / `run_l2` config options
 - StepResult carries `check_id` and `severity` ("Fail" | "Warn" | "Note" | None)
 - Exit codes are severity-aware: 0=pass (no non-Note failures), 1=warnings (failures within threshold), 2=errors or threshold exceeded (Note-severity checks are informational and never escalate exit code)
