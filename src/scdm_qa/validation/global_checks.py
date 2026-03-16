@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterator, TypedDict
+from typing import TypedDict
 
 import duckdb
 import polars as pl
@@ -261,12 +261,13 @@ def check_not_populated(
 
 
 def check_date_ordering(
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame],
     *,
     max_failing_rows: int = 500,
 ) -> list[StepResult]:
-    """Check 226: Detect rows where date_a > date_b.
+    """Check 226: Detect rows where date_a > date_b using DuckDB SQL.
 
     Rows where either date is null are skipped (not flagged).
     Returns one StepResult per configured date pair.
@@ -275,50 +276,52 @@ def check_date_ordering(
     if not ordering_defs:
         return []
 
-    # Accumulate per-pair counts across chunks
-    pair_failed: dict[str, int] = {}
-    pair_passed: dict[str, int] = {}
-    pair_failing_rows: dict[str, list[pl.DataFrame]] = {}
-    pair_failing_count: dict[str, int] = {}
-
-    for pair_def in ordering_defs:
-        key = f"{pair_def.date_a}>{pair_def.date_b}"
-        pair_failed[key] = 0
-        pair_passed[key] = 0
-        pair_failing_rows[key] = []
-        pair_failing_count[key] = 0
-
-    for chunk in chunks:
-        for pair_def in ordering_defs:
-            if pair_def.date_a not in chunk.columns or pair_def.date_b not in chunk.columns:
-                continue
-
-            key = f"{pair_def.date_a}>{pair_def.date_b}"
-
-            # Filter to rows where both dates are non-null
-            both_present = chunk.filter(
-                pl.col(pair_def.date_a).is_not_null() & pl.col(pair_def.date_b).is_not_null()
-            )
-
-            violations = both_present.filter(
-                pl.col(pair_def.date_a) > pl.col(pair_def.date_b)
-            )
-
-            pair_failed[key] += violations.height
-            pair_passed[key] += both_present.height - violations.height
-
-            if violations.height > 0 and pair_failing_count[key] < max_failing_rows:
-                remaining = max_failing_rows - pair_failing_count[key]
-                sample = violations.head(remaining)
-                pair_failing_rows[key].append(sample)
-                pair_failing_count[key] += sample.height
-
+    safe_view = view_name.replace('"', '""')
     results: list[StepResult] = []
+
     for pair_def in ordering_defs:
-        key = f"{pair_def.date_a}>{pair_def.date_b}"
-        failing = None
-        if pair_failing_rows[key]:
-            failing = pl.concat(pair_failing_rows[key])
+        safe_a = pair_def.date_a.replace('"', '""')
+        safe_b = pair_def.date_b.replace('"', '""')
+
+        try:
+            # Count rows where both dates are non-null
+            both_present = conn.execute(f"""
+                SELECT COUNT(*) FROM "{safe_view}"
+                WHERE "{safe_a}" IS NOT NULL AND "{safe_b}" IS NOT NULL
+            """).fetchone()[0]
+
+            # Count violations: date_a > date_b (both non-null)
+            n_failed = conn.execute(f"""
+                SELECT COUNT(*) FROM "{safe_view}"
+                WHERE "{safe_a}" IS NOT NULL
+                  AND "{safe_b}" IS NOT NULL
+                  AND "{safe_a}" > "{safe_b}"
+            """).fetchone()[0] or 0
+
+            n_passed = both_present - n_failed
+
+            # Sample failing rows
+            failing_df = conn.execute(f"""
+                SELECT * FROM "{safe_view}"
+                WHERE "{safe_a}" IS NOT NULL
+                  AND "{safe_b}" IS NOT NULL
+                  AND "{safe_a}" > "{safe_b}"
+                LIMIT {max_failing_rows}
+            """).pl()
+
+            failing = failing_df if failing_df.height > 0 else None
+
+        except duckdb.Error as e:
+            log.error(
+                "date ordering check failed",
+                error=str(e),
+                view=view_name,
+                date_a=pair_def.date_a,
+                date_b=pair_def.date_b,
+            )
+            n_passed = 0
+            n_failed = 0
+            failing = None
 
         results.append(
             StepResult(
@@ -326,8 +329,8 @@ def check_date_ordering(
                 assertion_type="date_ordering",
                 column=f"{pair_def.date_a}, {pair_def.date_b}",
                 description=f"{pair_def.description} (check {pair_def.check_id})",
-                n_passed=pair_passed[key],
-                n_failed=pair_failed[key],
+                n_passed=n_passed,
+                n_failed=n_failed,
                 failing_rows=failing,
                 check_id=pair_def.check_id,
                 severity=pair_def.severity,
@@ -338,12 +341,13 @@ def check_date_ordering(
 
 
 def check_cause_of_death(
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame],
     *,
     max_failing_rows: int = 500,
 ) -> list[StepResult]:
-    """Checks 236 and 237: Validate underlying cause of death records.
+    """Checks 236 and 237: Validate underlying cause of death records using DuckDB SQL.
 
     236: Each patient in COD must have at least one CauseType='U' record.
     237: Each patient in COD must have at most one CauseType='U' record.
@@ -353,43 +357,70 @@ def check_cause_of_death(
     if schema.table_key != "cause_of_death":
         return []
 
-    # Accumulate all PatID + CauseType across chunks
-    all_records: list[pl.DataFrame] = []
-    for chunk in chunks:
-        if "PatID" in chunk.columns and "CauseType" in chunk.columns:
-            all_records.append(chunk.select("PatID", "CauseType"))
+    safe_view = view_name.replace('"', '""')
 
-    if not all_records:
-        return []
+    try:
+        total_patients = conn.execute(f"""
+            SELECT COUNT(DISTINCT "PatID") FROM "{safe_view}"
+        """).fetchone()[0]
 
-    combined = pl.concat(all_records)
+        # Check 236: patients with zero CauseType='U'
+        missing_u_count = conn.execute(f"""
+            SELECT COUNT(*) FROM (
+                SELECT "PatID"
+                FROM "{safe_view}"
+                GROUP BY "PatID"
+                HAVING SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) = 0
+            )
+        """).fetchone()[0] or 0
 
-    # Count CauseType='U' records per patient
-    u_counts = (
-        combined.filter(pl.col("CauseType") == "U")
-        .group_by("PatID")
-        .agg(pl.len().alias("u_count"))
-    )
+        failing_236 = conn.execute(f"""
+            SELECT "PatID", 0 AS u_count
+            FROM "{safe_view}"
+            GROUP BY "PatID"
+            HAVING SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) = 0
+            LIMIT {max_failing_rows}
+        """).pl()
 
-    all_patients = combined.select("PatID").unique()
-    total_patients = all_patients.height
+        # Check 237: patients with more than one CauseType='U'
+        multiple_u_count = conn.execute(f"""
+            SELECT COUNT(*) FROM (
+                SELECT "PatID"
+                FROM "{safe_view}"
+                GROUP BY "PatID"
+                HAVING SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) > 1
+            )
+        """).fetchone()[0] or 0
 
-    # Join to get u_count per patient (patients not in u_counts have 0)
-    patient_u = all_patients.join(u_counts, on="PatID", how="left").with_columns(
-        pl.col("u_count").fill_null(0)
-    )
+        failing_237 = conn.execute(f"""
+            SELECT "PatID",
+                   SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) AS u_count
+            FROM "{safe_view}"
+            GROUP BY "PatID"
+            HAVING SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) > 1
+            LIMIT {max_failing_rows}
+        """).pl()
 
-    # Check 236: patients with zero CauseType='U'
-    missing_u = patient_u.filter(pl.col("u_count") == 0)
-    n_failed_236 = missing_u.height
-    n_passed_236 = total_patients - n_failed_236
-    failing_236 = missing_u.head(max_failing_rows) if missing_u.height > 0 else None
-
-    # Check 237: patients with more than one CauseType='U'
-    multiple_u = patient_u.filter(pl.col("u_count") > 1)
-    n_failed_237 = multiple_u.height
-    n_passed_237 = total_patients - n_failed_237
-    failing_237 = multiple_u.head(max_failing_rows) if multiple_u.height > 0 else None
+    except duckdb.Error as e:
+        log.error("cause of death check failed", error=str(e), view=view_name)
+        return [
+            StepResult(
+                step_index=-1,
+                assertion_type="cause_of_death",
+                column="CauseType",
+                description=f"Cause of death check error: {e}",
+                n_passed=0, n_failed=0, failing_rows=None,
+                check_id="236", severity="Fail",
+            ),
+            StepResult(
+                step_index=-1,
+                assertion_type="cause_of_death",
+                column="CauseType",
+                description=f"Cause of death check error: {e}",
+                n_passed=0, n_failed=0, failing_rows=None,
+                check_id="237", severity="Fail",
+            ),
+        ]
 
     return [
         StepResult(
@@ -397,9 +428,9 @@ def check_cause_of_death(
             assertion_type="cause_of_death",
             column="CauseType",
             description="Each patient has underlying cause of death (check 236)",
-            n_passed=n_passed_236,
-            n_failed=n_failed_236,
-            failing_rows=failing_236,
+            n_passed=total_patients - missing_u_count,
+            n_failed=missing_u_count,
+            failing_rows=failing_236 if failing_236.height > 0 else None,
             check_id="236",
             severity="Fail",
         ),
@@ -408,9 +439,9 @@ def check_cause_of_death(
             assertion_type="cause_of_death",
             column="CauseType",
             description="Each patient has at most one underlying cause of death (check 237)",
-            n_passed=n_passed_237,
-            n_failed=n_failed_237,
-            failing_rows=failing_237,
+            n_passed=total_patients - multiple_u_count,
+            n_failed=multiple_u_count,
+            failing_rows=failing_237 if failing_237.height > 0 else None,
             check_id="237",
             severity="Fail",
         ),

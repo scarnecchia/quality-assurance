@@ -221,16 +221,15 @@ def _process_table(
                 global_steps.extend(not_pop_steps)
 
             if get_date_ordering_checks_for_table(schema.table_key):
-                date_order_reader = create_reader(file_path, chunk_size=config.chunk_size)
                 date_order_steps = check_date_ordering(
-                    schema, date_order_reader.chunks(),
+                    conn, table_key, schema,
                     max_failing_rows=config.max_failing_rows,
                 )
                 global_steps.extend(date_order_steps)
 
             if schema.table_key == "cause_of_death":
-                cod_reader = create_reader(file_path, chunk_size=config.chunk_size)
-                cod_steps = check_cause_of_death(schema, cod_reader.chunks(),
+                cod_steps = check_cause_of_death(
+                    conn, table_key, schema,
                     max_failing_rows=config.max_failing_rows,
                 )
                 global_steps.extend(cod_steps)

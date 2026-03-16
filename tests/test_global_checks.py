@@ -491,528 +491,713 @@ class TestNotPopulated:
 class TestDateOrdering:
     """Test suite for check_date_ordering (L2 check 226)."""
 
-    def test_detects_violations_adate_greater_than_ddate(self) -> None:
+    def test_detects_violations_adate_greater_than_ddate(self, tmp_path: Path) -> None:
         """Test AC2.1: Check 226 flags rows where ADate > DDate."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2", "E3"],
-                "PatID": ["P1", "P2", "P3"],
-                "EncounterDate": [1000, 2000, 3000],
-                "EncounterType": ["IP", "OP", "ED"],
-                "ADate": [1100, 1050, 1200],  # E1: 1100 > 1050, E3: 1200 > 1050
-                "DDate": [1050, 2000, 1050],
-                "Discharge_Disposition": ["1", "1", "1"],
-                "Discharge_Status": ["A", "A", "A"],
-                "Admitting_Source": ["01", "01", "01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3"],
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterDate": [1000, 2000, 3000],
+            "EncounterType": ["IP", "OP", "ED"],
+            "ADate": [1100, 1050, 1200],  # E1: 1100 > 1050, E3: 1200 > 1050
+            "DDate": [1050, 2000, 1050],
+            "Discharge_Disposition": ["1", "1", "1"],
+            "Discharge_Status": ["A", "A", "A"],
+            "Admitting_Source": ["01", "01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 1
-        assert results[0].check_id == "226"
-        assert results[0].column == "ADate, DDate"
-        assert results[0].assertion_type == "date_ordering"
-        assert results[0].n_failed == 2  # Two rows violate ordering
-        assert results[0].n_passed == 1  # One row is valid
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-    def test_skips_rows_with_null_dates(self) -> None:
+            assert len(results) == 1
+            assert results[0].check_id == "226"
+            assert results[0].column == "ADate, DDate"
+            assert results[0].assertion_type == "date_ordering"
+            assert results[0].n_failed == 2  # Two rows violate ordering
+            assert results[0].n_passed == 1  # One row is valid
+        finally:
+            conn.close()
+
+    def test_skips_rows_with_null_dates(self, tmp_path: Path) -> None:
         """Test AC2.6: Check 226 does not flag rows where either date is null."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2", "E3", "E4"],
-                "PatID": ["P1", "P2", "P3", "P4"],
-                "EncounterDate": [1000, 2000, 3000, 4000],
-                "EncounterType": ["IP", "OP", "ED", "IP"],
-                "ADate": [1100, None, 1200, 1050],  # E2: null ADate, E3 would violate but let's test
-                "DDate": [1050, 2000, 1050, 1050],  # E4: ADate <= DDate (valid)
-                "Discharge_Disposition": ["1", "1", "1", "1"],
-                "Discharge_Status": ["A", "A", "A", "A"],
-                "Admitting_Source": ["01", "01", "01", "01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3", "E4"],
+            "PatID": ["P1", "P2", "P3", "P4"],
+            "EncounterDate": [1000, 2000, 3000, 4000],
+            "EncounterType": ["IP", "OP", "ED", "IP"],
+            "ADate": [1100, None, 1200, 1050],  # E2: null ADate, E3 would violate but let's test
+            "DDate": [1050, 2000, 1050, 1050],  # E4: ADate <= DDate (valid)
+            "Discharge_Disposition": ["1", "1", "1", "1"],
+            "Discharge_Status": ["A", "A", "A", "A"],
+            "Admitting_Source": ["01", "01", "01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        # E1 violates, E2 skipped (null ADate), E3 violates, E4 passes
-        # But we're testing that nulls are skipped
-        assert len(results) == 1
-        # Only rows with BOTH dates non-null are counted
-        # E1, E3, E4 have both dates non-null
-        # E2 has null ADate so not counted
-        assert results[0].n_passed + results[0].n_failed == 3  # Only 3 rows with both dates
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-    def test_clean_data_passes(self) -> None:
+            # E1 violates, E2 skipped (null ADate), E3 violates, E4 passes
+            # But we're testing that nulls are skipped
+            assert len(results) == 1
+            # Only rows with BOTH dates non-null are counted
+            # E1, E3, E4 have both dates non-null
+            # E2 has null ADate so not counted
+            assert results[0].n_passed + results[0].n_failed == 3  # Only 3 rows with both dates
+        finally:
+            conn.close()
+
+    def test_clean_data_passes(self, tmp_path: Path) -> None:
         """Test that data with all ADate <= DDate passes."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2", "E3"],
-                "PatID": ["P1", "P2", "P3"],
-                "EncounterDate": [1000, 2000, 3000],
-                "EncounterType": ["IP", "OP", "ED"],
-                "ADate": [1000, 1500, 2500],
-                "DDate": [1050, 2000, 3000],
-                "Discharge_Disposition": ["1", "1", "1"],
-                "Discharge_Status": ["A", "A", "A"],
-                "Admitting_Source": ["01", "01", "01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3"],
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterDate": [1000, 2000, 3000],
+            "EncounterType": ["IP", "OP", "ED"],
+            "ADate": [1000, 1500, 2500],
+            "DDate": [1050, 2000, 3000],
+            "Discharge_Disposition": ["1", "1", "1"],
+            "Discharge_Status": ["A", "A", "A"],
+            "Admitting_Source": ["01", "01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 1
-        assert results[0].n_failed == 0
-        assert results[0].n_passed == 3
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-    def test_multiple_chunks_accumulation(self) -> None:
-        """Test that violations accumulate correctly across multiple chunks."""
+            assert len(results) == 1
+            assert results[0].n_failed == 0
+            assert results[0].n_passed == 3
+        finally:
+            conn.close()
+
+    def test_multiple_chunks_accumulation(self, tmp_path: Path) -> None:
+        """Test that violations are detected across all rows in a single view."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncounterType": ["IP", "OP"],
-                "ADate": [1100, 1050],  # E1 violates
-                "DDate": [1050, 2000],
-                "Discharge_Disposition": ["1", "1"],
-                "Discharge_Status": ["A", "A"],
-                "Admitting_Source": ["01", "01"],
-            }),
-            pl.DataFrame({
-                "EncounterID": ["E3", "E4"],
-                "PatID": ["P3", "P4"],
-                "EncounterDate": [3000, 4000],
-                "EncounterType": ["ED", "IP"],
-                "ADate": [1200, 1050],  # E3 violates
-                "DDate": [1050, 2000],
-                "Discharge_Disposition": ["1", "1"],
-                "Discharge_Status": ["A", "A"],
-                "Admitting_Source": ["01", "01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3", "E4"],
+            "PatID": ["P1", "P2", "P3", "P4"],
+            "EncounterDate": [1000, 2000, 3000, 4000],
+            "EncounterType": ["IP", "OP", "ED", "IP"],
+            "ADate": [1100, 1050, 1200, 1050],  # E1 and E3 violate
+            "DDate": [1050, 2000, 1050, 2000],
+            "Discharge_Disposition": ["1", "1", "1", "1"],
+            "Discharge_Status": ["A", "A", "A", "A"],
+            "Admitting_Source": ["01", "01", "01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 1
-        assert results[0].n_failed == 2  # E1 and E3 violate
-        assert results[0].n_passed == 2  # E2 and E4 pass
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-    def test_enrollment_date_ordering(self) -> None:
+            assert len(results) == 1
+            assert results[0].n_failed == 2  # E1 and E3 violate
+            assert results[0].n_passed == 2  # E2 and E4 pass
+        finally:
+            conn.close()
+
+    def test_enrollment_date_ordering(self, tmp_path: Path) -> None:
         """Test date ordering check for enrollment table (Enr_Start <= Enr_End)."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P2", "P3"],
-                "PlanID": ["PL1", "PL2", "PL3"],
-                "Enr_Start": [1000, 1500, 2000],
-                "Enr_End": [1500, 1400, 2500],  # P2: 1500 > 1400 (violates)
-                "PlanType": ["HMO", "HMO", "PPO"],
-                "PayerType": ["Commercial", "Commercial", "Medicare"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2", "P3"],
+            "PlanID": ["PL1", "PL2", "PL3"],
+            "Enr_Start": [1000, 1500, 2000],
+            "Enr_End": [1500, 1400, 2500],  # P2: 1500 > 1400 (violates)
+            "PlanType": ["HMO", "HMO", "PPO"],
+            "PayerType": ["Commercial", "Commercial", "Medicare"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 1
-        assert results[0].check_id == "226"
-        assert results[0].column == "Enr_Start, Enr_End"
-        assert results[0].n_failed == 1
-        assert results[0].n_passed == 2
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "enrollment", schema)
 
-    def test_no_date_ordering_defs_returns_empty_list(self) -> None:
+            assert len(results) == 1
+            assert results[0].check_id == "226"
+            assert results[0].column == "Enr_Start, Enr_End"
+            assert results[0].n_failed == 1
+            assert results[0].n_passed == 2
+        finally:
+            conn.close()
+
+    def test_no_date_ordering_defs_returns_empty_list(self, tmp_path: Path) -> None:
         """Test that tables with no date ordering checks return empty list."""
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")  # No date ordering defs
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P2"],
-                "Birth_Date": [1000, 2000],
-                "Sex": ["F", "M"],
-                "Hispanic": ["Y", "N"],
-                "Race": ["1", "2"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
-        assert results == []
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-    def test_check_id_is_226(self) -> None:
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "demographic", schema)
+            assert results == []
+        finally:
+            conn.close()
+
+    def test_check_id_is_226(self, tmp_path: Path) -> None:
         """Test AC4.1: All returned StepResults have check_id='226'."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncounterType": ["IP"],
-                "ADate": [1100],
-                "DDate": [1050],
-                "Discharge_Disposition": ["1"],
-                "Discharge_Status": ["A"],
-                "Admitting_Source": ["01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncounterType": ["IP"],
+            "ADate": [1100],
+            "DDate": [1050],
+            "Discharge_Disposition": ["1"],
+            "Discharge_Status": ["A"],
+            "Admitting_Source": ["01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        assert len(results) > 0
-        for result in results:
-            assert result.check_id == "226"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-    def test_severity_from_registry(self) -> None:
+            assert len(results) > 0
+            for result in results:
+                assert result.check_id == "226"
+        finally:
+            conn.close()
+
+    def test_severity_from_registry(self, tmp_path: Path) -> None:
         """Test AC4.1: Severity matches registry definitions."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncounterType": ["IP"],
-                "ADate": [1000],
-                "DDate": [1000],
-                "Discharge_Disposition": ["1"],
-                "Discharge_Status": ["A"],
-                "Admitting_Source": ["01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncounterType": ["IP"],
+            "ADate": [1000],
+            "DDate": [1000],
+            "Discharge_Disposition": ["1"],
+            "Discharge_Status": ["A"],
+            "Admitting_Source": ["01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        # Get registry definitions to verify severity
-        check_defs = get_date_ordering_checks_for_table("encounter")
-        assert len(check_defs) > 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-        # Verify each result has matching severity from registry
-        for result in results:
-            check_def = next(c for c in check_defs if c.date_a == "ADate" and c.date_b == "DDate")
-            assert result.severity == check_def.severity
-            assert result.severity == "Fail"  # From registry
+            # Get registry definitions to verify severity
+            check_defs = get_date_ordering_checks_for_table("encounter")
+            assert len(check_defs) > 0
 
-    def test_date_pair_count_for_encounter(self) -> None:
+            # Verify each result has matching severity from registry
+            for result in results:
+                check_def = next(c for c in check_defs if c.date_a == "ADate" and c.date_b == "DDate")
+                assert result.severity == check_def.severity
+                assert result.severity == "Fail"  # From registry
+        finally:
+            conn.close()
+
+    def test_date_pair_count_for_encounter(self, tmp_path: Path) -> None:
         """Test that encounter table has one date ordering pair."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncounterType": ["IP"],
-                "ADate": [1000],
-                "DDate": [1000],
-                "Discharge_Disposition": ["1"],
-                "Discharge_Status": ["A"],
-                "Admitting_Source": ["01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncounterType": ["IP"],
+            "ADate": [1000],
+            "DDate": [1000],
+            "Discharge_Disposition": ["1"],
+            "Discharge_Status": ["A"],
+            "Admitting_Source": ["01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        # Encounter only has one date ordering pair (ADate > DDate)
-        assert len(results) == 1
-        assert results[0].column == "ADate, DDate"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-    def test_date_pair_count_for_enrollment(self) -> None:
+            # Encounter only has one date ordering pair (ADate > DDate)
+            assert len(results) == 1
+            assert results[0].column == "ADate, DDate"
+        finally:
+            conn.close()
+
+    def test_date_pair_count_for_enrollment(self, tmp_path: Path) -> None:
         """Test that enrollment table has one date ordering pair."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "PlanID": ["PL1"],
-                "Enr_Start": [1000],
-                "Enr_End": [1000],
-                "PlanType": ["HMO"],
-                "PayerType": ["Commercial"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "PlanID": ["PL1"],
+            "Enr_Start": [1000],
+            "Enr_End": [1000],
+            "PlanType": ["HMO"],
+            "PayerType": ["Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        # Enrollment only has one date ordering pair (Enr_Start > Enr_End)
-        assert len(results) == 1
-        assert results[0].column == "Enr_Start, Enr_End"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "enrollment", schema)
 
-    def test_failing_rows_sampled(self) -> None:
+            # Enrollment only has one date ordering pair (Enr_Start > Enr_End)
+            assert len(results) == 1
+            assert results[0].column == "Enr_Start, Enr_End"
+        finally:
+            conn.close()
+
+    def test_failing_rows_sampled(self, tmp_path: Path) -> None:
         """Test that failing rows are captured and sampled correctly."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2", "E3"],
-                "PatID": ["P1", "P2", "P3"],
-                "EncounterDate": [1000, 2000, 3000],
-                "EncounterType": ["IP", "OP", "ED"],
-                "ADate": [1100, 1100, 1100],  # All violate
-                "DDate": [1050, 1050, 1050],
-                "Discharge_Disposition": ["1", "1", "1"],
-                "Discharge_Status": ["A", "A", "A"],
-                "Admitting_Source": ["01", "01", "01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3"],
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterDate": [1000, 2000, 3000],
+            "EncounterType": ["IP", "OP", "ED"],
+            "ADate": [1100, 1100, 1100],  # All violate
+            "DDate": [1050, 1050, 1050],
+            "Discharge_Disposition": ["1", "1", "1"],
+            "Discharge_Status": ["A", "A", "A"],
+            "Admitting_Source": ["01", "01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 1
-        assert results[0].n_failed == 3
-        assert results[0].failing_rows is not None
-        assert results[0].failing_rows.height == 3
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
 
-    def test_failing_rows_respects_max_failing_rows(self) -> None:
+            assert len(results) == 1
+            assert results[0].n_failed == 3
+            assert results[0].failing_rows is not None
+            assert results[0].failing_rows.height == 3
+        finally:
+            conn.close()
+
+    def test_failing_rows_respects_max_failing_rows(self, tmp_path: Path) -> None:
         """Test that failing row samples are bounded by max_failing_rows."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
         # Create many violations
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": [f"E{i}" for i in range(10)],
-                "PatID": [f"P{i}" for i in range(10)],
-                "EncounterDate": [1000 + i * 100 for i in range(10)],
-                "EncounterType": ["IP"] * 10,
-                "ADate": [1100] * 10,  # All violate
-                "DDate": [1050] * 10,
-                "Discharge_Disposition": ["1"] * 10,
-                "Discharge_Status": ["A"] * 10,
-                "Admitting_Source": ["01"] * 10,
-            }),
-        ])
-        results = check_date_ordering(schema, chunks, max_failing_rows=5)
+        df = pl.DataFrame({
+            "EncounterID": [f"E{i}" for i in range(10)],
+            "PatID": [f"P{i}" for i in range(10)],
+            "EncounterDate": [1000 + i * 100 for i in range(10)],
+            "EncounterType": ["IP"] * 10,
+            "ADate": [1100] * 10,  # All violate
+            "DDate": [1050] * 10,
+            "Discharge_Disposition": ["1"] * 10,
+            "Discharge_Status": ["A"] * 10,
+            "Admitting_Source": ["01"] * 10,
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 1
-        assert results[0].n_failed == 10  # All 10 fail
-        assert results[0].failing_rows is not None
-        assert results[0].failing_rows.height == 5  # But sampled to 5
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema, max_failing_rows=5)
 
-    def test_null_adate_and_null_ddate_both_skipped(self) -> None:
+            assert len(results) == 1
+            assert results[0].n_failed == 10  # All 10 fail
+            assert results[0].failing_rows is not None
+            assert results[0].failing_rows.height == 5  # But sampled to 5
+        finally:
+            conn.close()
+
+    def test_null_adate_and_null_ddate_both_skipped(self, tmp_path: Path) -> None:
         """Test that rows with null ADate, null DDate, or both are skipped."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2", "E3", "E4", "E5"],
-                "PatID": ["P1", "P2", "P3", "P4", "P5"],
-                "EncounterDate": [1000, 2000, 3000, 4000, 5000],
-                "EncounterType": ["IP", "OP", "ED", "IP", "OP"],
-                "ADate": [1100, None, 1200, None, 1050],  # E2 and E4 have null ADate
-                "DDate": [1050, 2000, None, None, 1050],  # E3 and E4 have null DDate
-                "Discharge_Disposition": ["1", "1", "1", "1", "1"],
-                "Discharge_Status": ["A", "A", "A", "A", "A"],
-                "Admitting_Source": ["01", "01", "01", "01", "01"],
-            }),
-        ])
-        results = check_date_ordering(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3", "E4", "E5"],
+            "PatID": ["P1", "P2", "P3", "P4", "P5"],
+            "EncounterDate": [1000, 2000, 3000, 4000, 5000],
+            "EncounterType": ["IP", "OP", "ED", "IP", "OP"],
+            "ADate": [1100, None, 1200, None, 1050],  # E2 and E4 have null ADate
+            "DDate": [1050, 2000, None, None, 1050],  # E3 and E4 have null DDate
+            "Discharge_Disposition": ["1", "1", "1", "1", "1"],
+            "Discharge_Status": ["A", "A", "A", "A", "A"],
+            "Admitting_Source": ["01", "01", "01", "01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 1
-        # Only E1 and E5 have both dates non-null
-        # E1: 1100 > 1050 (violates), E5: 1050 <= 1050 (passes)
-        assert results[0].n_passed + results[0].n_failed == 2
-        assert results[0].n_failed == 1
-        assert results[0].n_passed == 1
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_date_ordering(conn, "encounter", schema)
+
+            assert len(results) == 1
+            # Only E1 and E5 have both dates non-null
+            # E1: 1100 > 1050 (violates), E5: 1050 <= 1050 (passes)
+            assert results[0].n_passed + results[0].n_failed == 2
+            assert results[0].n_failed == 1
+            assert results[0].n_passed == 1
+        finally:
+            conn.close()
 
 
 class TestCauseOfDeath:
     """Test suite for check_cause_of_death (L2 checks 236, 237)."""
 
-    def test_check_236_detects_missing_underlying_cause(self) -> None:
+    def test_check_236_detects_missing_underlying_cause(self, tmp_path: Path) -> None:
         """Test AC2.3: Check 236 flags patients with no CauseType='U' record."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
         # Patient P1 has CauseType='C' and 'I' but no 'U'
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "CauseType": ["C", "I"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "CauseType": ["C", "I"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        result_236 = results[0]
-        assert result_236.check_id == "236"
-        assert result_236.n_failed >= 1
-        assert result_236.assertion_type == "cause_of_death"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
 
-    def test_check_237_detects_multiple_underlying_causes(self) -> None:
+            assert len(results) == 2
+            result_236 = results[0]
+            assert result_236.check_id == "236"
+            assert result_236.n_failed >= 1
+            assert result_236.assertion_type == "cause_of_death"
+        finally:
+            conn.close()
+
+    def test_check_237_detects_multiple_underlying_causes(self, tmp_path: Path) -> None:
         """Test AC2.7: Check 237 flags patients with >1 CauseType='U' records."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
         # Patient P3 has two CauseType='U' records
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P3", "P3"],
-                "CauseType": ["U", "U"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P3", "P3"],
+            "CauseType": ["U", "U"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        result_237 = results[1]
-        assert result_237.check_id == "237"
-        assert result_237.n_failed >= 1
-        assert result_237.assertion_type == "cause_of_death"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
 
-    def test_exactly_one_u_passes_both_checks(self) -> None:
+            assert len(results) == 2
+            result_237 = results[1]
+            assert result_237.check_id == "237"
+            assert result_237.n_failed >= 1
+            assert result_237.assertion_type == "cause_of_death"
+        finally:
+            conn.close()
+
+    def test_exactly_one_u_passes_both_checks(self, tmp_path: Path) -> None:
         """Test AC2.7: Patient with exactly one 'U' and other types passes both checks."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
         # Patient P2 has exactly one CauseType='U' plus other types
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P2", "P2", "P2"],
-                "CauseType": ["U", "C", "I"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P2", "P2", "P2"],
+            "CauseType": ["U", "C", "I"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        result_236 = results[0]
-        result_237 = results[1]
-        # P2 passes check 236 (has one 'U')
-        assert result_236.n_failed == 0
-        # P2 passes check 237 (has exactly one 'U', not more)
-        assert result_237.n_failed == 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
 
-    def test_check_ids_are_236_and_237(self) -> None:
+            assert len(results) == 2
+            result_236 = results[0]
+            result_237 = results[1]
+            # P2 passes check 236 (has one 'U')
+            assert result_236.n_failed == 0
+            # P2 passes check 237 (has exactly one 'U', not more)
+            assert result_237.n_failed == 0
+        finally:
+            conn.close()
+
+    def test_check_ids_are_236_and_237(self, tmp_path: Path) -> None:
         """Test AC4.1: Results have correct check_id values."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "CauseType": ["C"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "CauseType": ["C"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        assert results[0].check_id == "236"
-        assert results[1].check_id == "237"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
 
-    def test_severity_is_fail(self) -> None:
+            assert len(results) == 2
+            assert results[0].check_id == "236"
+            assert results[1].check_id == "237"
+        finally:
+            conn.close()
+
+    def test_severity_is_fail(self, tmp_path: Path) -> None:
         """Test AC4.1: Both results have severity='Fail'."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "CauseType": ["C"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "CauseType": ["C"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        assert results[0].severity == "Fail"
-        assert results[1].severity == "Fail"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
 
-    def test_returns_empty_list_for_non_cod_table(self) -> None:
+            assert len(results) == 2
+            assert results[0].severity == "Fail"
+            assert results[1].severity == "Fail"
+        finally:
+            conn.close()
+
+    def test_returns_empty_list_for_non_cod_table(self, tmp_path: Path) -> None:
         """Test that non-cause_of_death tables return empty list."""
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "Birth_Date": [1000],
-                "Sex": ["F"],
-                "Hispanic": ["Y"],
-                "Race": ["1"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
-        assert results == []
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "Birth_Date": [1000],
+            "Sex": ["F"],
+            "Hispanic": ["Y"],
+            "Race": ["1"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-    def test_multiple_chunks_accumulation(self) -> None:
-        """Test that records accumulate correctly across chunks."""
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "demographic", schema)
+            assert results == []
+        finally:
+            conn.close()
+
+    def test_multiple_chunks_accumulation(self, tmp_path: Path) -> None:
+        """Test that records are aggregated correctly across all rows in a single view."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
-        # Split records across chunks
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "CauseType": ["U", "C"],
-            }),
-            pl.DataFrame({
-                "PatID": ["P2", "P2"],
-                "CauseType": ["C", "I"],  # No 'U'
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        # All records in one table
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1", "P2", "P2"],
+            "CauseType": ["U", "C", "C", "I"],  # P1 has one 'U', P2 has no 'U'
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        result_236 = results[0]
-        result_237 = results[1]
-        # Total patients: 2 (P1 and P2)
-        # Check 236: P2 fails (no 'U'), P1 passes
-        assert result_236.n_failed == 1
-        assert result_236.n_passed == 1
-        # Check 237: both pass (P1 has 1 'U', P2 has 0 'U')
-        assert result_237.n_failed == 0
-        assert result_237.n_passed == 2
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
 
-    def test_multiple_patients_with_various_scenarios(self) -> None:
+            assert len(results) == 2
+            result_236 = results[0]
+            result_237 = results[1]
+            # Total patients: 2 (P1 and P2)
+            # Check 236: P2 fails (no 'U'), P1 passes
+            assert result_236.n_failed == 1
+            assert result_236.n_passed == 1
+            # Check 237: both pass (P1 has 1 'U', P2 has 0 'U')
+            assert result_237.n_failed == 0
+            assert result_237.n_passed == 2
+        finally:
+            conn.close()
+
+    def test_multiple_patients_with_various_scenarios(self, tmp_path: Path) -> None:
         """Test mixed scenarios: missing U, multiple U, correct U."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1", "P2", "P2", "P2", "P3", "P3"],
-                "CauseType": ["C", "I", "U", "C", "I", "U", "U"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1", "P2", "P2", "P2", "P3", "P3"],
+            "CauseType": ["C", "I", "U", "C", "I", "U", "U"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        result_236 = results[0]
-        result_237 = results[1]
-        # P1: no 'U' (fails 236)
-        # P2: one 'U' (passes both)
-        # P3: two 'U' (fails 237)
-        assert result_236.n_failed == 1  # Only P1
-        assert result_236.n_passed == 2  # P2 and P3
-        assert result_237.n_failed == 1  # Only P3
-        assert result_237.n_passed == 2  # P1 and P2
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
 
-    def test_failing_rows_are_capped_at_max_failing_rows(self) -> None:
+            assert len(results) == 2
+            result_236 = results[0]
+            result_237 = results[1]
+            # P1: no 'U' (fails 236)
+            # P2: one 'U' (passes both)
+            # P3: two 'U' (fails 237)
+            assert result_236.n_failed == 1  # Only P1
+            assert result_236.n_passed == 2  # P2 and P3
+            assert result_237.n_failed == 1  # Only P3
+            assert result_237.n_passed == 2  # P1 and P2
+        finally:
+            conn.close()
+
+    def test_failing_rows_are_capped_at_max_failing_rows(self, tmp_path: Path) -> None:
         """Test that failing row samples are bounded by max_failing_rows."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
         # Create 10 patients with no 'U'
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": [f"P{i}" for i in range(10)],
-                "CauseType": ["C"] * 10,
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks, max_failing_rows=5)
+        df = pl.DataFrame({
+            "PatID": [f"P{i}" for i in range(10)],
+            "CauseType": ["C"] * 10,
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        result_236 = results[0]
-        # All 10 patients fail check 236
-        assert result_236.n_failed == 10
-        # But failing_rows is sampled to max_failing_rows
-        assert result_236.failing_rows is not None
-        assert result_236.failing_rows.height == 5
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema, max_failing_rows=5)
 
-    def test_empty_dataframe_returns_zero_counts(self) -> None:
+            assert len(results) == 2
+            result_236 = results[0]
+            # All 10 patients fail check 236
+            assert result_236.n_failed == 10
+            # But failing_rows is sampled to max_failing_rows
+            assert result_236.failing_rows is not None
+            assert result_236.failing_rows.height == 5
+        finally:
+            conn.close()
+
+    def test_empty_dataframe_returns_zero_counts(self, tmp_path: Path) -> None:
         """Test that empty dataframe returns results with zero passed/failed."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": [],
-                "CauseType": [],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
-        # Empty table: 0 patients total, so 0 passed and 0 failed for both checks
-        assert len(results) == 2
-        assert results[0].n_passed == 0
-        assert results[0].n_failed == 0
-        assert results[1].n_passed == 0
-        assert results[1].n_failed == 0
+        df = pl.DataFrame({
+            "PatID": [],
+            "CauseType": [],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-    def test_missing_columns_returns_empty_list(self) -> None:
-        """Test that chunks without required columns return empty list."""
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
+            # Empty table: 0 patients total, so 0 passed and 0 failed for both checks
+            assert len(results) == 2
+            assert results[0].n_passed == 0
+            assert results[0].n_failed == 0
+            assert results[1].n_passed == 0
+            assert results[1].n_failed == 0
+        finally:
+            conn.close()
+
+    def test_cause_of_death_returns_two_results(self, tmp_path: Path) -> None:
+        """Test that cause_of_death checks return two results."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                # CauseType is missing
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
-        assert results == []
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "CauseType": ["C"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-    def test_column_names_are_correct(self) -> None:
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
+            assert len(results) == 2
+        finally:
+            conn.close()
+
+    def test_column_names_are_correct(self, tmp_path: Path) -> None:
         """Test that results reference the CauseType column."""
+        pytest.importorskip("duckdb")
         schema = get_schema("cause_of_death")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "CauseType": ["C"],
-            }),
-        ])
-        results = check_cause_of_death(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "CauseType": ["C"],
+        })
+        path = tmp_path / "cause_of_death.parquet"
+        df.write_parquet(path)
 
-        assert len(results) == 2
-        assert results[0].column == "CauseType"
-        assert results[1].column == "CauseType"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "cause_of_death" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_cause_of_death(conn, "cause_of_death", schema)
+
+            assert len(results) == 2
+            assert results[0].column == "CauseType"
+            assert results[1].column == "CauseType"
+        finally:
+            conn.close()
 
 
 class TestOverlappingSpans:
