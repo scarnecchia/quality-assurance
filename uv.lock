@@ -671,7 +671,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", specifier = ">=1,<2" },
+    { name = "duckdb", specifier = ">=1.2.0,<2" },
     { name = "jinja2", specifier = ">=3,<4" },
     { name = "pointblank", specifier = ">=0.6,<1" },
     { name = "polars", extras = ["rt64"], specifier = ">=1.38,<2" },
