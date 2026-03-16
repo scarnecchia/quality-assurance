@@ -41,8 +41,8 @@ def load_cross_table_checks() -> tuple[CrossTableCheckDef, ...]:
                 "description",
                 "source_table",
                 "reference_table",
-                "source_column",
-                "reference_column",
+                "join_column",
+                "join_reference_column",
             }
         elif check_type == "length_consistency":
             required_fields = {
@@ -51,7 +51,7 @@ def load_cross_table_checks() -> tuple[CrossTableCheckDef, ...]:
                 "severity",
                 "description",
                 "source_table",
-                "source_column",
+                "join_column",
                 "table_group",
             }
         elif check_type == "cross_date_compare":
@@ -62,9 +62,10 @@ def load_cross_table_checks() -> tuple[CrossTableCheckDef, ...]:
                 "description",
                 "source_table",
                 "reference_table",
-                "source_column",
-                "reference_column",
-                "target_column",
+                "join_column",
+                "join_reference_column",
+                "compare_column",
+                "compare_reference_column",
             }
         elif check_type == "length_excess":
             required_fields = {
@@ -73,7 +74,7 @@ def load_cross_table_checks() -> tuple[CrossTableCheckDef, ...]:
                 "severity",
                 "description",
                 "source_table",
-                "source_column",
+                "join_column",
             }
         elif check_type == "column_mismatch":
             required_fields = {
@@ -109,9 +110,10 @@ def load_cross_table_checks() -> tuple[CrossTableCheckDef, ...]:
                 description=check_dict["description"],
                 source_table=check_dict["source_table"],
                 reference_table=check_dict.get("reference_table"),
-                source_column=check_dict.get("source_column"),
-                reference_column=check_dict.get("reference_column"),
-                target_column=check_dict.get("target_column"),
+                join_column=check_dict.get("join_column"),
+                join_reference_column=check_dict.get("join_reference_column"),
+                compare_column=check_dict.get("compare_column"),
+                compare_reference_column=check_dict.get("compare_reference_column"),
                 column_a=check_dict.get("column_a"),
                 column_b=check_dict.get("column_b"),
                 table_group=table_group,

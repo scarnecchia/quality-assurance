@@ -203,9 +203,9 @@ class TestL1L2ConditionalExecution:
                 description="Test",
                 source_table="demographic",
                 reference_table="patient",
-                source_column="PatID",
-                reference_column="PatID",
-                target_column=None,
+                join_column="PatID",
+                join_reference_column="PatID",
+                compare_column=None,
             )
             mock_get_checks.return_value = (mock_check,)
             mock_cross.return_value = []

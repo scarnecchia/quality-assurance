@@ -115,9 +115,10 @@ class TestOrchestrator:
             description="Test check",
             source_table="enrollment",
             reference_table="demographic",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column="Enr_Start",
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column="Enr_Start",
+            compare_reference_column="Birth_Date",
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -165,9 +166,9 @@ class TestReferentialIntegrity:
             description="PatID in diagnosis but not in enrollment",
             source_table="diagnosis",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
         )
 
         results = run_cross_table_checks(config_with_tables, (check,))
@@ -191,9 +192,9 @@ class TestReferentialIntegrity:
             description="PatID in procedure but not in enrollment",
             source_table="procedure",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
         )
 
         results = run_cross_table_checks(config_with_tables, (check,))
@@ -234,11 +235,11 @@ class TestLengthConsistency:
             severity="Warn",
             description="PatID length consistency",
             source_table="enrollment",
-            source_column="PatID",
+            join_column="PatID",
             reference_table=None,
-            reference_column=None,
+            join_reference_column=None,
             table_group=("enrollment", "diagnosis"),
-            target_column=None,
+            compare_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -275,11 +276,11 @@ class TestLengthConsistency:
             severity="Warn",
             description="PatID length consistency",
             source_table="enrollment",
-            source_column="PatID",
+            join_column="PatID",
             reference_table=None,
-            reference_column=None,
+            join_reference_column=None,
             table_group=("enrollment", "diagnosis"),
-            target_column=None,
+            compare_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -322,9 +323,10 @@ class TestCrossDateCompare:
             description="Enr_Start must not be before Birth_Date",
             source_table="enrollment",
             reference_table="demographic",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column="Enr_Start",
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column="Enr_Start",
+            compare_reference_column="Birth_Date",
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -345,9 +347,10 @@ class TestCrossDateCompare:
             description="Encounter ADate must not be before Birth_Date",
             source_table="encounter",
             reference_table="demographic",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column="ADate",
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column="ADate",
+            compare_reference_column="Birth_Date",
         )
 
         results = run_cross_table_checks(config_with_tables, (check,))
@@ -368,9 +371,10 @@ class TestCrossDateCompare:
             description="PostalCode_Date must not be before Birth_Date",
             source_table="demographic",
             reference_table="demographic",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column="PostalCode_Date",
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column="PostalCode_Date",
+            compare_reference_column="Birth_Date",
         )
 
         results = run_cross_table_checks(config_with_tables, (check,))
@@ -431,10 +435,10 @@ class TestLengthExcess:
             severity="Warn",
             description="Actual DX length much smaller than declared (100)",
             source_table="diagnosis",
-            source_column="DX",
-            target_column=None,
+            join_column="DX",
+            compare_column=None,
             reference_table=None,
-            reference_column=None,
+            join_reference_column=None,
         )
 
         with unittest.mock.patch(
@@ -474,10 +478,10 @@ class TestLengthExcess:
             severity="Warn",
             description="Actual PDX length test",
             source_table="diagnosis",
-            source_column="PDX",
-            target_column=None,
+            join_column="PDX",
+            compare_column=None,
             reference_table=None,
-            reference_column=None,
+            join_reference_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -518,10 +522,10 @@ class TestColumnMismatch:
             source_table="demographic",
             column_a="Hispanic",
             column_b="ImputedHispanic",
-            target_column=None,
+            compare_column=None,
             reference_table=None,
-            source_column=None,
-            reference_column=None,
+            join_column=None,
+            join_reference_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -543,10 +547,10 @@ class TestColumnMismatch:
             source_table="demographic",
             column_a="Hispanic",
             column_b="ImputedHispanic",
-        target_column=None,
+            compare_column=None,
             reference_table=None,
-            source_column=None,
-            reference_column=None,
+            join_column=None,
+            join_reference_column=None,
         )
 
         results = run_cross_table_checks(config_with_tables, (check,))
@@ -582,9 +586,9 @@ class TestErrorHandling:
             description="Test error handling",
             source_table="enrollment",
             reference_table="enrollment",
-            source_column="NonExistentColumn",
-            reference_column="PatID",
-            target_column=None,
+            join_column="NonExistentColumn",
+            join_reference_column="PatID",
+            compare_column=None,
         )
 
         results = run_cross_table_checks(config, (check,))
@@ -609,9 +613,9 @@ class TestTableFiltering:
             description="Check for diagnosis",
             source_table="diagnosis",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
         )
 
         check2 = CrossTableCheckDef(
@@ -621,9 +625,9 @@ class TestTableFiltering:
             description="Check for procedure",
             source_table="procedure",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
         )
 
         results = run_cross_table_checks(
@@ -646,9 +650,9 @@ class TestTableFiltering:
             description="Check for diagnosis",
             source_table="diagnosis",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
         )
 
         results = run_cross_table_checks(

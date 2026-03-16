@@ -92,7 +92,7 @@ def run_cross_table_checks(
                     StepResult(
                         step_index=-1,
                         assertion_type="cross_table",
-                        column=check.source_column or "",
+                        column=check.join_column or "",
                         description=f"Check {check.check_id} error: {e}",
                         n_passed=0,
                         n_failed=0,
@@ -194,7 +194,7 @@ def _handle_referential_integrity(
 
     Args:
         conn: DuckDB connection
-        check: Check definition (must have source_table, reference_table, source_column, reference_column)
+        check: Check definition (must have source_table, reference_table, join_column, join_reference_column)
         config: QAConfig for max_failing_rows
 
     Returns:
@@ -202,8 +202,8 @@ def _handle_referential_integrity(
     """
     source = check.source_table
     reference = check.reference_table
-    source_col = check.source_column
-    reference_col = check.reference_column
+    source_col = check.join_column
+    reference_col = check.join_reference_column
 
     # Count missing
     count_query = f"""
@@ -258,16 +258,16 @@ def _handle_length_consistency(
 
     Args:
         conn: DuckDB connection
-        check: Check definition (must have source_column and table_group)
+        check: Check definition (must have join_column and table_group)
         config: QAConfig
 
     Returns:
         StepResult (n_failed > 0 if max lengths differ across tables)
     """
-    if not check.table_group or not check.source_column:
-        raise ValueError("length_consistency check requires source_column and table_group")
+    if not check.table_group or not check.join_column:
+        raise ValueError("length_consistency check requires join_column and table_group")
 
-    col = check.source_column
+    col = check.join_column
     tables = check.table_group
 
     # Build union query to get max length per table
@@ -321,11 +321,14 @@ def _handle_cross_date_compare(
     check: CrossTableCheckDef,
     config: QAConfig,
 ) -> StepResult:
-    """Checks 205, 206, 227: Cross-table date comparison (joined on PatID).
+    """Checks 205, 206, 227: Cross-table date comparison.
+
+    Joins source to reference on join_column/join_reference_column, then
+    checks that compare_column (source) >= compare_reference_column (reference).
 
     Args:
         conn: DuckDB connection
-        check: Check definition (must have source_table, reference_table, source_column, reference_column, target_column)
+        check: Check definition with join keys and both date columns
         config: QAConfig
 
     Returns:
@@ -333,39 +336,37 @@ def _handle_cross_date_compare(
     """
     source = check.source_table
     reference = check.reference_table
-    source_col = check.source_column
-    reference_col = check.reference_column
-    target_col = check.target_column
+    join_col = check.join_column
+    join_ref_col = check.join_reference_column
+    date_col = check.compare_column
+    ref_date_col = check.compare_reference_column
 
-    # Count violations: target_col < Birth_Date
     count_query = f"""
         SELECT COUNT(*) AS n_violations
         FROM "{source}" s
-        JOIN "{reference}" r ON s."{source_col}" = r."{reference_col}"
-        WHERE s."{target_col}" IS NOT NULL
-          AND r."Birth_Date" IS NOT NULL
-          AND s."{target_col}" < r."Birth_Date"
+        JOIN "{reference}" r ON s."{join_col}" = r."{join_ref_col}"
+        WHERE s."{date_col}" IS NOT NULL
+          AND r."{ref_date_col}" IS NOT NULL
+          AND s."{date_col}" < r."{ref_date_col}"
     """
     n_violations = conn.execute(count_query).fetchone()[0] or 0
 
-    # Total count
     total_query = f"""
         SELECT COUNT(*) AS n_total
         FROM "{source}" s
-        JOIN "{reference}" r ON s."{source_col}" = r."{reference_col}"
-        WHERE s."{target_col}" IS NOT NULL
-          AND r."Birth_Date" IS NOT NULL
+        JOIN "{reference}" r ON s."{join_col}" = r."{join_ref_col}"
+        WHERE s."{date_col}" IS NOT NULL
+          AND r."{ref_date_col}" IS NOT NULL
     """
     n_total = conn.execute(total_query).fetchone()[0] or 0
 
-    # Sample failing rows
     failing_query = f"""
         SELECT s.*
         FROM "{source}" s
-        JOIN "{reference}" r ON s."{source_col}" = r."{reference_col}"
-        WHERE s."{target_col}" IS NOT NULL
-          AND r."Birth_Date" IS NOT NULL
-          AND s."{target_col}" < r."Birth_Date"
+        JOIN "{reference}" r ON s."{join_col}" = r."{join_ref_col}"
+        WHERE s."{date_col}" IS NOT NULL
+          AND r."{ref_date_col}" IS NOT NULL
+          AND s."{date_col}" < r."{ref_date_col}"
         LIMIT {config.max_failing_rows}
     """
     failing_df = conn.execute(failing_query).pl()
@@ -375,7 +376,7 @@ def _handle_cross_date_compare(
     return StepResult(
         step_index=-1,
         assertion_type="cross_table",
-        column=target_col or "",
+        column=f"{date_col}, {ref_date_col}",
         description=check.description,
         n_passed=n_passed,
         n_failed=n_violations,
@@ -394,14 +395,14 @@ def _handle_length_excess(
 
     Args:
         conn: DuckDB connection
-        check: Check definition (must have source_table and source_column)
+        check: Check definition (must have source_table and join_column)
         config: QAConfig
 
     Returns:
         StepResult (n_failed > 0 if actual_max < declared_length * 0.5)
     """
     source = check.source_table
-    col = check.source_column
+    col = check.join_column
 
     # Get actual max length
     actual_query = f"""
