@@ -394,7 +394,7 @@ def check_cause_of_death(
 
         failing_237 = conn.execute(f"""
             SELECT "PatID",
-                   SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) AS u_count
+                   CAST(SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) AS INTEGER) AS u_count
             FROM "{safe_view}"
             GROUP BY "PatID"
             HAVING SUM(CASE WHEN "CauseType" = 'U' THEN 1 ELSE 0 END) > 1
