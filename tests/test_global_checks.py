@@ -8,6 +8,7 @@ import pytest
 
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
+from scdm_qa.validation.duckdb_utils import create_connection
 from scdm_qa.validation.global_checks import (
     check_cause_of_death,
     check_date_ordering,
@@ -20,55 +21,36 @@ from scdm_qa.validation.global_checks import (
 )
 
 
-class TestUniquenessInMemory:
-    def test_detects_duplicate_keys(self) -> None:
-        schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-            pl.DataFrame({"PatID": ["P2", "P3"], "Birth_Date": [3, 4], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-        ])
-
-        result = check_uniqueness(
-            Path("dummy.sas7bdat"),  # non-parquet forces in-memory path
-            schema,
-            chunks=chunks,
-        )
-        assert result is not None
-        # P2 appears twice → 2 duplicate rows
-        assert result.n_failed == 2
-
-    def test_no_duplicates_passes(self) -> None:
-        schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-            pl.DataFrame({"PatID": ["P3", "P4"], "Birth_Date": [3, 4], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-        ])
-        result = check_uniqueness(Path("dummy.sas7bdat"), schema, chunks=chunks)
-        assert result is not None
-        assert result.n_failed == 0
-
-    def test_returns_none_for_table_without_unique_row(self) -> None:
-        schema = get_schema("vital_signs")
-        result = check_uniqueness(Path("dummy.parquet"), schema)
-        assert result is None
-
-
-class TestUniquenessDuckDB:
-    def test_detects_duplicates_via_duckdb(self, tmp_path: Path) -> None:
+class TestUniqueness:
+    def test_detects_duplicate_keys(self, tmp_path: Path) -> None:
         pytest.importorskip("duckdb")
-        df = pl.DataFrame({"PatID": ["P1", "P1", "P3"]})
+        schema = get_schema("demographic")
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2", "P2"],
+            "Birth_Date": [1, 2, 3],
+            "Sex": ["F", "M", "M"],
+            "Hispanic": ["Y", "N", "N"],
+            "Race": ["1", "2", "2"],
+        })
         path = tmp_path / "demographic.parquet"
         df.write_parquet(path)
 
-        schema = get_schema("demographic")
-        result = check_uniqueness(path, schema)
-        assert result is not None
-        assert result.n_failed > 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_uniqueness(conn, "demographic", schema)
+            assert result is not None
+            # P2 appears twice → 2 duplicate rows
+            assert result.n_failed == 2
+        finally:
+            conn.close()
 
-    def test_fallback_to_in_memory_when_duckdb_unavailable(self, tmp_path: Path) -> None:
-        """Test graceful fallback when DuckDB is unavailable (AC5.3)."""
+    def test_no_duplicates_passes(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
+        schema = get_schema("demographic")
         df = pl.DataFrame({
-            "PatID": ["P1", "P1", "P3"],
+            "PatID": ["P1", "P2", "P3"],
             "Birth_Date": [1, 2, 3],
             "Sex": ["F", "M", "F"],
             "Hispanic": ["Y", "N", "Y"],
@@ -77,31 +59,81 @@ class TestUniquenessDuckDB:
         path = tmp_path / "demographic.parquet"
         df.write_parquet(path)
 
-        schema = get_schema("demographic")
-
-        # Patch _uniqueness_duckdb to simulate unavailability (returns None)
-        with mock.patch("scdm_qa.validation.global_checks._uniqueness_duckdb", return_value=None):
-            chunks = iter([
-                pl.DataFrame({
-                    "PatID": ["P1", "P1"],
-                    "Birth_Date": [1, 2],
-                    "Sex": ["F", "M"],
-                    "Hispanic": ["Y", "N"],
-                    "Race": ["1", "2"],
-                }),
-                pl.DataFrame({
-                    "PatID": ["P3"],
-                    "Birth_Date": [3],
-                    "Sex": ["F"],
-                    "Hispanic": ["Y"],
-                    "Race": ["1"],
-                }),
-            ])
-
-            result = check_uniqueness(path, schema, chunks=chunks)
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_uniqueness(conn, "demographic", schema)
             assert result is not None
-            # P1 appears twice → 2 duplicate rows detected via in-memory fallback
-            assert result.n_failed == 2
+            assert result.n_failed == 0
+            assert result.n_passed == 3
+        finally:
+            conn.close()
+
+    def test_returns_none_for_table_without_unique_row(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
+        schema = get_schema("vital_signs")
+        df = pl.DataFrame({"PatID": ["P1", "P2"], "VitalType": ["BP", "HR"]})
+        path = tmp_path / "vital_signs.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "vital_signs" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_uniqueness(conn, "vital_signs", schema)
+            assert result is None
+        finally:
+            conn.close()
+
+    def test_check_id_211_and_severity_fail(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
+        schema = get_schema("demographic")
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "Birth_Date": [1],
+            "Sex": ["F"],
+            "Hispanic": ["Y"],
+            "Race": ["1"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_uniqueness(conn, "demographic", schema)
+            assert result is not None
+            assert result.check_id == "211"
+            assert result.severity == "Fail"
+        finally:
+            conn.close()
+
+    def test_multiple_duplicates(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
+        schema = get_schema("demographic")
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1", "P1", "P2", "P2"],
+            "Birth_Date": [1, 1, 1, 2, 2],
+            "Sex": ["F", "F", "F", "M", "M"],
+            "Hispanic": ["Y", "Y", "Y", "N", "N"],
+            "Race": ["1", "1", "1", "2", "2"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_uniqueness(conn, "demographic", schema)
+            assert result is not None
+            # P1 has 3 duplicate rows, P2 has 2 duplicate rows
+            assert result.n_failed == 5
+            assert result.n_passed == 0
+        finally:
+            conn.close()
 
 
 class TestSortOrder:
@@ -128,15 +160,29 @@ class TestSortOrder:
 
 
 class TestGlobalCheckCheckIds:
-    def test_uniqueness_check_has_check_id_211(self) -> None:
+    def test_uniqueness_check_has_check_id_211(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-        ])
-        result = check_uniqueness(Path("dummy.sas7bdat"), schema, chunks=chunks)
-        assert result is not None
-        assert result.check_id == "211"
-        assert result.severity == "Fail"
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1, 2],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_uniqueness(conn, "demographic", schema)
+            assert result is not None
+            assert result.check_id == "211"
+            assert result.severity == "Fail"
+        finally:
+            conn.close()
 
     def test_sort_order_check_has_check_id_102(self) -> None:
         schema = get_schema("demographic")
@@ -870,208 +916,199 @@ class TestCauseOfDeath:
 class TestOverlappingSpans:
     """Test suite for check_overlapping_spans (L2 check 215)."""
 
-    def test_detects_overlapping_spans(self) -> None:
+    def test_detects_overlapping_spans(self, tmp_path: Path) -> None:
         """Test AC2.2: Check 215 flags overlapping enrollment spans within same patient."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
         # Patient P1 has two overlapping spans: [100, 200] and [150, 300]
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": [100, 150],
-                "Enr_End": [200, 300],
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 150],
+            "Enr_End": [200, 300],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
-        assert result is not None
-        assert result.check_id == "215"
-        assert result.n_failed > 0
-        assert result.assertion_type == "overlapping_spans"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_overlapping_spans(conn, "enrollment", schema)
+            assert result is not None
+            assert result.check_id == "215"
+            assert result.n_failed > 0
+            assert result.assertion_type == "overlapping_spans"
+        finally:
+            conn.close()
 
-    def test_non_overlapping_spans_pass(self) -> None:
+    def test_non_overlapping_spans_pass(self, tmp_path: Path) -> None:
         """Test that non-overlapping spans pass."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
         # Patient P1 has non-overlapping spans: [100, 200] and [201, 300]
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": [100, 201],
-                "Enr_End": [200, 300],
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 201],
+            "Enr_End": [200, 300],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
-        assert result is not None
-        assert result.n_failed == 0
-        assert result.n_passed == 2
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_overlapping_spans(conn, "enrollment", schema)
+            assert result is not None
+            assert result.n_failed == 0
+            assert result.n_passed == 2
+        finally:
+            conn.close()
 
-    def test_returns_none_for_non_enrollment_table(self) -> None:
+    def test_returns_none_for_non_enrollment_table(self, tmp_path: Path) -> None:
         """Test that non-enrollment tables return None."""
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "Birth_Date": [1000],
-                "Sex": ["F"],
-                "Hispanic": ["Y"],
-                "Race": ["1"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "Birth_Date": [1000],
+            "Sex": ["F"],
+            "Hispanic": ["Y"],
+            "Race": ["1"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
-        assert result is None
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_overlapping_spans(conn, "demographic", schema)
+            assert result is None
+        finally:
+            conn.close()
 
-    def test_check_id_215_and_severity_fail(self) -> None:
+    def test_check_id_215_and_severity_fail(self, tmp_path: Path) -> None:
         """Test AC4.1: Check 215 has correct check_id and severity."""
-        schema = get_schema("enrollment")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "PlanID": ["PL1"],
-                "Enr_Start": [100],
-                "Enr_End": [200],
-                "PlanType": ["HMO"],
-                "PayerType": ["Commercial"],
-            }),
-        ])
-
-        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
-        assert result is not None
-        assert result.check_id == "215"
-        assert result.severity == "Fail"
-
-    def test_multiple_patients_with_overlaps(self) -> None:
-        """Test overlap detection across multiple patients."""
-        schema = get_schema("enrollment")
-        # P1 has overlapping spans, P2 has non-overlapping
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1", "P2", "P2"],
-                "PlanID": ["PL1", "PL2", "PL3", "PL4"],
-                "Enr_Start": [100, 150, 500, 600],
-                "Enr_End": [200, 300, 550, 700],
-                "PlanType": ["HMO", "HMO", "PPO", "PPO"],
-                "PayerType": ["Commercial", "Commercial", "Medicare", "Medicare"],
-            }),
-        ])
-
-        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
-        assert result is not None
-        # P1 has 1 overlapping row (the second span), P2 has 0
-        assert result.n_failed == 1
-        assert result.n_passed == 3
-
-    def test_overlaps_across_chunks(self) -> None:
-        """Test overlap detection across chunk boundaries."""
-        schema = get_schema("enrollment")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "PlanID": ["PL1"],
-                "Enr_Start": [100],
-                "Enr_End": [200],
-                "PlanType": ["HMO"],
-                "PayerType": ["Commercial"],
-            }),
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "PlanID": ["PL2"],
-                "Enr_Start": [150],
-                "Enr_End": [300],
-                "PlanType": ["HMO"],
-                "PayerType": ["Commercial"],
-            }),
-        ])
-
-        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
-        assert result is not None
-        assert result.n_failed > 0
-
-    def test_date_type_handling(self) -> None:
-        """Test that both Date and integer dtypes are handled correctly."""
-        schema = get_schema("enrollment")
-        # Use pl.Date dtype instead of integers
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": pl.Series(
-                    "Enr_Start",
-                    ["2020-01-01", "2020-01-15"],
-                    dtype=pl.Date,
-                ),
-                "Enr_End": pl.Series(
-                    "Enr_End",
-                    ["2020-01-31", "2020-02-28"],
-                    dtype=pl.Date,
-                ),
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
-
-        result = check_overlapping_spans(Path("dummy.sas7bdat"), schema, chunks)
-        assert result is not None
-        # Overlapping dates should be detected
-        assert result.n_failed > 0
-
-    def test_duckdb_fast_path_with_parquet(self, tmp_path: Path) -> None:
-        """Test DuckDB fast path for Parquet files with overlapping spans."""
         pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
         df = pl.DataFrame({
-            "PatID": ["P1", "P1"],
-            "PlanID": ["PL1", "PL2"],
-            "Enr_Start": [100, 150],
-            "Enr_End": [200, 300],
-            "PlanType": ["HMO", "HMO"],
-            "PayerType": ["Commercial", "Commercial"],
+            "PatID": ["P1"],
+            "PlanID": ["PL1"],
+            "Enr_Start": [100],
+            "Enr_End": [200],
+            "PlanType": ["HMO"],
+            "PayerType": ["Commercial"],
         })
         path = tmp_path / "enrollment.parquet"
         df.write_parquet(path)
 
-        result = check_overlapping_spans(path, schema)
-        assert result is not None
-        assert result.check_id == "215"
-        assert result.n_failed > 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_overlapping_spans(conn, "enrollment", schema)
+            assert result is not None
+            assert result.check_id == "215"
+            assert result.severity == "Fail"
+        finally:
+            conn.close()
 
-    def test_duckdb_fallback_to_in_memory(self, tmp_path: Path) -> None:
-        """Test graceful fallback when DuckDB is unavailable."""
+    def test_multiple_patients_with_overlaps(self, tmp_path: Path) -> None:
+        """Test overlap detection across multiple patients."""
+        pytest.importorskip("duckdb")
+        schema = get_schema("enrollment")
+        # P1 has overlapping spans, P2 has non-overlapping
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1", "P2", "P2"],
+            "PlanID": ["PL1", "PL2", "PL3", "PL4"],
+            "Enr_Start": [100, 150, 500, 600],
+            "Enr_End": [200, 300, 550, 700],
+            "PlanType": ["HMO", "HMO", "PPO", "PPO"],
+            "PayerType": ["Commercial", "Commercial", "Medicare", "Medicare"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_overlapping_spans(conn, "enrollment", schema)
+            assert result is not None
+            # P1 has 1 overlapping row (the second span), P2 has 0
+            assert result.n_failed == 1
+            assert result.n_passed == 3
+        finally:
+            conn.close()
+
+    def test_overlaps_across_multiple_rows(self, tmp_path: Path) -> None:
+        """Test overlap detection with multiple overlapping rows."""
+        pytest.importorskip("duckdb")
+        schema = get_schema("enrollment")
+        # P1 has multiple overlapping rows
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1", "P1"],
+            "PlanID": ["PL1", "PL2", "PL3"],
+            "Enr_Start": [100, 150, 200],
+            "Enr_End": [200, 300, 350],
+            "PlanType": ["HMO", "HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_overlapping_spans(conn, "enrollment", schema)
+            assert result is not None
+            # PL2 and PL3 are overlapping with previous spans
+            assert result.n_failed > 0
+        finally:
+            conn.close()
+
+    def test_date_type_handling(self, tmp_path: Path) -> None:
+        """Test that both Date and integer dtypes are handled correctly."""
+        pytest.importorskip("duckdb")
+        schema = get_schema("enrollment")
+        # Use pl.Date dtype instead of integers
         df = pl.DataFrame({
             "PatID": ["P1", "P1"],
             "PlanID": ["PL1", "PL2"],
-            "Enr_Start": [100, 150],
-            "Enr_End": [200, 300],
+            "Enr_Start": pl.Series(
+                "Enr_Start",
+                ["2020-01-01", "2020-01-15"],
+                dtype=pl.Date,
+            ),
+            "Enr_End": pl.Series(
+                "Enr_End",
+                ["2020-01-31", "2020-02-28"],
+                dtype=pl.Date,
+            ),
             "PlanType": ["HMO", "HMO"],
             "PayerType": ["Commercial", "Commercial"],
         })
         path = tmp_path / "enrollment.parquet"
         df.write_parquet(path)
 
-        schema = get_schema("enrollment")
-
-        # Mock _overlapping_spans_duckdb to return None
-        with mock.patch("scdm_qa.validation.global_checks._overlapping_spans_duckdb", return_value=None):
-            chunks = iter([
-                pl.DataFrame({
-                    "PatID": ["P1", "P1"],
-                    "PlanID": ["PL1", "PL2"],
-                    "Enr_Start": [100, 150],
-                    "Enr_End": [200, 300],
-                    "PlanType": ["HMO", "HMO"],
-                    "PayerType": ["Commercial", "Commercial"],
-                }),
-            ])
-
-            result = check_overlapping_spans(path, schema, chunks)
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_overlapping_spans(conn, "enrollment", schema)
             assert result is not None
+            # Overlapping dates should be detected
             assert result.n_failed > 0
+        finally:
+            conn.close()
 
 
 class TestEnrollmentGaps:
