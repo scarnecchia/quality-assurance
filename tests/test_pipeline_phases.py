@@ -728,23 +728,16 @@ class TestSASFileSkip:
 
     def test_sas_file_skips_global_checks_with_warning(self, tmp_path: Path) -> None:
         """GH-7.AC6.1: Pipeline skips global checks for SAS files with a logged warning."""
+        from scdm_qa.logging import configure_logging
         from scdm_qa.pipeline import _process_table
 
-        # Create a minimal Parquet file for validation to succeed
+        # Set up logging to capture warnings
+        log_file = tmp_path / "test.log"
+        configure_logging(log_file=log_file, verbose=False)
+
+        # Create a minimal data directory
         data_dir = tmp_path / "data"
         data_dir.mkdir()
-
-        # Create minimal demographic Parquet with required columns
-        df = pl.DataFrame({
-            "PatID": ["P1", "P2"],
-            "Birth_Date": [1000, 2000],
-            "Sex": ["F", "M"],
-            "Hispanic": ["Y", "N"],
-            "Race": ["1", "2"],
-            "ImputedHispanic": ["Y", "N"],
-            "ImputedRace": ["1", "2"],
-        })
-        df.write_parquet(data_dir / "demographic.parquet")
 
         # Create a dummy SAS file path (doesn't need to be a valid SAS file)
         sas_path = data_dir / "demographic.sas7bdat"
@@ -781,6 +774,14 @@ class TestSASFileSkip:
             # Verify no global check steps were added (empty steps)
             # Global checks should be skipped for SAS files
             assert len(outcome.validation_result.steps) == 0
+
+            # Verify the warning was logged
+            log_content = log_file.read_text()
+            assert "skipping global checks for non-Parquet file" in log_content, \
+                "Warning message should be logged when SAS file is processed"
+            assert "demographic" in log_content, "Table name should be in the log"
+            assert "global checks require Parquet format" in log_content, \
+                "Reason should be in the log"
 
     def test_sas_file_no_errors_or_crashes(self, tmp_path: Path) -> None:
         """GH-7.AC6.2: SAS files do not cause errors or crashes — graceful skip."""

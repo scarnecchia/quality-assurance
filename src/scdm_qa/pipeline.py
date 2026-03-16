@@ -200,7 +200,7 @@ def _process_table(
             )
             log.debug("registered global check view", table=table_key)
 
-            # --- All existing global check calls go here, unchanged ---
+            # Existing chunk-based global checks (migrated to DuckDB in later phases)
             if schema.unique_row:
                 uniqueness_reader = create_reader(file_path, chunk_size=config.chunk_size)
                 uniqueness_step = check_uniqueness(
