@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TypedDict
 
 import duckdb
-import polars as pl
 import structlog
 
 from scdm_qa.schemas.checks import (
@@ -524,53 +523,64 @@ def check_overlapping_spans(
 
 
 def check_enrollment_gaps(
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame],
     *,
     max_failing_rows: int = 500,
 ) -> StepResult | None:
-    """Check 216: Detect non-bridged enrollment gaps.
-
-    For each patient, sorts spans by Enr_Start and checks for gaps where
-    previous Enr_End + 1 day < current Enr_Start. Adjacent spans
-    (Enr_End + 1 day == next Enr_Start) pass.
-
-    Handles both integer (SAS date) and pl.Date dtypes.
-    """
     if schema.table_key != "enrollment":
         return None
 
-    all_spans: list[pl.DataFrame] = []
-    total_rows = 0
+    safe_view = view_name.replace('"', '""')
 
-    for chunk in chunks:
-        cols = ["PatID", "Enr_Start", "Enr_End"]
-        if all(c in chunk.columns for c in cols):
-            all_spans.append(chunk.select(cols))
-            total_rows += chunk.height
+    try:
+        total_rows = conn.execute(
+            f'SELECT COUNT(*) FROM "{safe_view}"'
+        ).fetchone()[0]
 
-    if not all_spans:
-        return None
+        # Detect gaps: prev_end + 1 < Enr_Start
+        # DuckDB handles date arithmetic natively (DATE + INTERVAL '1 day')
+        # For integer dates, prev_end + 1 < Enr_Start
+        n_failed = conn.execute(f"""
+            WITH spans AS (
+                SELECT "PatID", "Enr_Start", "Enr_End",
+                       LAG("Enr_End") OVER (
+                           PARTITION BY "PatID" ORDER BY "Enr_Start"
+                       ) AS prev_end
+                FROM "{safe_view}"
+            )
+            SELECT COUNT(*) FROM spans
+            WHERE prev_end IS NOT NULL
+              AND (prev_end + 1) < "Enr_Start"
+        """).fetchone()[0] or 0
 
-    combined = pl.concat(all_spans).sort("PatID", "Enr_Start")
+        failing_df = conn.execute(f"""
+            WITH spans AS (
+                SELECT "PatID", "Enr_Start", "Enr_End",
+                       LAG("Enr_End") OVER (
+                           PARTITION BY "PatID" ORDER BY "Enr_Start"
+                       ) AS prev_end
+                FROM "{safe_view}"
+            )
+            SELECT "PatID", "Enr_Start", "Enr_End", prev_end
+            FROM spans
+            WHERE prev_end IS NOT NULL
+              AND (prev_end + 1) < "Enr_Start"
+            LIMIT {max_failing_rows}
+        """).pl()
 
-    with_prev = combined.with_columns(
-        pl.col("Enr_End").shift(1).over("PatID").alias("prev_end")
-    )
+    except duckdb.Error as e:
+        log.error("enrollment gaps check failed", error=str(e), view=view_name)
+        return StepResult(
+            step_index=-1,
+            assertion_type="enrollment_gaps",
+            column="PatID, Enr_Start, Enr_End",
+            description=f"Enrollment gaps check error: {e}",
+            n_passed=0, n_failed=0, failing_rows=None,
+            check_id="216", severity="Warn",
+        )
 
-    # Gap: prev_end + 1 day < Enr_Start (more than 1 day between spans)
-    # Use dtype-aware increment: duration(days=1) for Date, +1 for integers
-    enr_dtype = combined["Enr_Start"].dtype
-    if enr_dtype == pl.Date or enr_dtype == pl.Datetime:
-        one_day = pl.duration(days=1)
-    else:
-        one_day = 1
-
-    gaps = with_prev.filter(
-        pl.col("prev_end").is_not_null() & ((pl.col("prev_end") + one_day) < pl.col("Enr_Start"))
-    )
-
-    n_failed = gaps.height
     n_passed = total_rows - n_failed if total_rows > n_failed else 0
 
     return StepResult(
@@ -580,77 +590,84 @@ def check_enrollment_gaps(
         description="No non-bridged enrollment gaps (check 216)",
         n_passed=n_passed,
         n_failed=n_failed,
-        failing_rows=gaps.head(max_failing_rows) if gaps.height > 0 else None,
+        failing_rows=failing_df if failing_df.height > 0 else None,
         check_id="216",
         severity="Warn",
     )
 
 
 def check_enc_combinations(
+    conn: duckdb.DuckDBPyConnection,
+    view_name: str,
     schema: TableSchema,
-    chunks: Iterator[pl.DataFrame],
     *,
     max_failing_rows: int = 500,
 ) -> list[StepResult]:
-    """Checks 244 and 245: Validate ENC field combinations.
-
-    244: Flag rows not matching valid combination rules.
-    245: Flag EncType groups exceeding rate threshold for invalid combos.
-
-    Returns one StepResult for check 244, plus one per EncType threshold test for 245.
-    """
     if schema.table_key != "encounter":
         return []
 
-    required_cols = {"EncType", "DDate", "Discharge_Disposition", "Discharge_Status"}
+    safe_view = view_name.replace('"', '""')
 
-    all_rows: list[pl.DataFrame] = []
-    for chunk in chunks:
-        if required_cols.issubset(set(chunk.columns)):
-            all_rows.append(chunk.select(list(required_cols)))
-
-    if not all_rows:
-        return []
-
-    combined = pl.concat(all_rows)
-    total_rows = combined.height
-
-    # Derive ddate_state column
-    combined = combined.with_columns(
-        pl.when(pl.col("DDate").is_null())
-        .then(pl.lit("Null"))
-        .otherwise(pl.lit("Present"))
-        .alias("_ddate_state")
-    )
-
-    # Check each row against combination rules
-    # Build a boolean column: True if row is INVALID
-    invalid_mask = pl.lit(False)
-    for enc_type, (ddate_req, disp_req, status_req) in ENC_COMBINATION_RULES.items():
-        type_match = pl.col("EncType") == enc_type
-        violation = pl.lit(False)
-        if ddate_req:
-            violation = violation | (pl.col("_ddate_state") == "Null")
-        if disp_req:
-            violation = violation | pl.col("Discharge_Disposition").is_null()
-        if status_req:
-            violation = violation | pl.col("Discharge_Status").is_null()
-        invalid_mask = invalid_mask | (type_match & violation)
-
-    # Also flag unknown EncType values
+    # Build CASE WHEN conditions from ENC_COMBINATION_RULES
+    # A row is invalid if:
+    #   1. Its EncType has a rule and a required field is NULL, OR
+    #   2. Its EncType is not in the known types
     known_types = list(ENC_COMBINATION_RULES.keys())
-    invalid_mask = invalid_mask | ~pl.col("EncType").is_in(known_types)
+    type_list = ", ".join(f"'{t}'" for t in known_types)
 
-    combined = combined.with_columns(invalid_mask.alias("_invalid"))
-    invalid_rows = combined.filter(pl.col("_invalid"))
+    violation_cases = []
+    for enc_type, (ddate_req, disp_req, status_req) in ENC_COMBINATION_RULES.items():
+        conditions = []
+        if ddate_req:
+            conditions.append('"DDate" IS NULL')
+        if disp_req:
+            conditions.append('"Discharge_Disposition" IS NULL')
+        if status_req:
+            conditions.append('"Discharge_Status" IS NULL')
+        if conditions:
+            or_clause = " OR ".join(conditions)
+            violation_cases.append(
+                f"""("EncType" = '{enc_type}' AND ({or_clause}))"""
+            )
 
-    # Check 244: per-row invalid combos
-    n_failed_244 = invalid_rows.height
-    n_passed_244 = total_rows - n_failed_244
+    # Also flag unknown EncType
+    violation_cases.append(f'"EncType" NOT IN ({type_list})')
+    invalid_where = " OR ".join(violation_cases)
 
-    failing_244 = None
-    if n_failed_244 > 0:
-        failing_244 = invalid_rows.drop("_ddate_state", "_invalid").head(max_failing_rows)
+    try:
+        total_rows = conn.execute(
+            f'SELECT COUNT(*) FROM "{safe_view}"'
+        ).fetchone()[0]
+
+        # Check 244: count invalid rows
+        n_failed_244 = conn.execute(f"""
+            SELECT COUNT(*) FROM "{safe_view}"
+            WHERE {invalid_where}
+        """).fetchone()[0] or 0
+
+        n_passed_244 = total_rows - n_failed_244
+
+        failing_244 = None
+        if n_failed_244 > 0:
+            failing_244 = conn.execute(f"""
+                SELECT "EncType", "DDate", "Discharge_Disposition", "Discharge_Status"
+                FROM "{safe_view}"
+                WHERE {invalid_where}
+                LIMIT {max_failing_rows}
+            """).pl()
+
+    except duckdb.Error as e:
+        log.error("ENC combination check failed", error=str(e), view=view_name)
+        return [
+            StepResult(
+                step_index=-1,
+                assertion_type="enc_combinations",
+                column="EncType, DDate, Discharge_Disposition, Discharge_Status",
+                description=f"ENC combination check error: {e}",
+                n_passed=0, n_failed=0, failing_rows=None,
+                check_id="244", severity="Fail",
+            )
+        ]
 
     results: list[StepResult] = [
         StepResult(
@@ -660,7 +677,7 @@ def check_enc_combinations(
             description="Valid ENC field combination (check 244)",
             n_passed=n_passed_244,
             n_failed=n_failed_244,
-            failing_rows=failing_244,
+            failing_rows=failing_244 if failing_244 is not None and failing_244.height > 0 else None,
             check_id="244",
             severity="Fail",
         )
@@ -668,33 +685,49 @@ def check_enc_combinations(
 
     # Check 245: rate threshold per EncType
     for enc_type, threshold in ENC_RATE_THRESHOLDS.items():
-        type_rows = combined.filter(pl.col("EncType") == enc_type)
-        type_total = type_rows.height
-        if type_total == 0:
-            continue
+        try:
+            row = conn.execute(f"""
+                SELECT
+                    CAST(COUNT(*) AS INTEGER) AS type_total,
+                    CAST(SUM(CASE WHEN ({invalid_where}) THEN 1 ELSE 0 END) AS INTEGER) AS type_invalid
+                FROM "{safe_view}"
+                WHERE "EncType" = '{enc_type}'
+            """).fetchone()
 
-        type_invalid = type_rows.filter(pl.col("_invalid")).height
-        rate = type_invalid / type_total
+            type_total = row[0]
+            type_invalid = row[1] or 0
 
-        if rate > threshold:
-            n_failed = type_invalid
-            n_passed = type_total - type_invalid
-        else:
-            n_failed = 0
-            n_passed = type_total
+            if type_total == 0:
+                continue
 
-        results.append(
-            StepResult(
-                step_index=-1,
-                assertion_type="enc_combination_rate",
-                column=f"EncType={enc_type}",
-                description=f"{enc_type} invalid combo rate {'>' if rate > threshold else '<='} {threshold:.0%} (check 245)",
-                n_passed=n_passed,
-                n_failed=n_failed,
-                failing_rows=None,
-                check_id="245",
-                severity="Fail",
+            rate = type_invalid / type_total
+
+            if rate > threshold:
+                n_failed = type_invalid
+                n_passed = type_total - type_invalid
+            else:
+                n_failed = 0
+                n_passed = type_total
+
+            results.append(
+                StepResult(
+                    step_index=-1,
+                    assertion_type="enc_combination_rate",
+                    column=f"EncType={enc_type}",
+                    description=f"{enc_type} invalid combo rate {'>' if rate > threshold else '<='} {threshold:.0%} (check 245)",
+                    n_passed=n_passed,
+                    n_failed=n_failed,
+                    failing_rows=None,
+                    check_id="245",
+                    severity="Fail",
+                )
             )
-        )
+
+        except duckdb.Error as e:
+            log.error(
+                "ENC rate threshold check failed",
+                error=str(e),
+                enc_type=enc_type,
+            )
 
     return results

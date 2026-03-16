@@ -1399,309 +1399,371 @@ class TestOverlappingSpans:
 
 
 class TestEnrollmentGaps:
-    """Test suite for check_enrollment_gaps (L2 check 216)."""
+    """Test suite for check_enrollment_gaps (L2 check 216) using DuckDB views."""
 
-    def test_detects_gaps(self) -> None:
-        """Test AC2.8: Check 216 flags non-bridged enrollment gaps."""
+    def test_detects_gaps(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.2: Check 216 flags non-bridged enrollment gaps."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
         # Patient P1 has a gap: [100, 200] and [300, 400] (gap of 99 days)
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": [100, 300],
-                "Enr_End": [200, 400],
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 300],
+            "Enr_End": [200, 400],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        assert result.check_id == "216"
-        assert result.n_failed > 0
-        assert result.assertion_type == "enrollment_gaps"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "enrollment", schema)
+            assert result is not None
+            assert result.check_id == "216"
+            assert result.n_failed > 0
+            assert result.assertion_type == "enrollment_gaps"
+        finally:
+            conn.close()
 
-    def test_adjacent_spans_pass(self) -> None:
-        """Test AC2.8: Adjacent spans (Enr_End + 1 day == next Enr_Start) pass."""
+    def test_adjacent_spans_pass(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.3: Adjacent spans (Enr_End + 1 day == next Enr_Start) pass."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
         # Patient P1 has adjacent spans: [100, 200] and [201, 300]
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": [100, 201],
-                "Enr_End": [200, 300],
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 201],
+            "Enr_End": [200, 300],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        assert result.n_failed == 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "enrollment", schema)
+            assert result is not None
+            assert result.n_failed == 0
+        finally:
+            conn.close()
 
-    def test_contiguous_spans_pass(self) -> None:
+    def test_contiguous_spans_pass(self, tmp_path: Path) -> None:
         """Test that contiguous spans (no gap) pass."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
         # Patient P1 has contiguous spans: [100, 200] and [200, 300]
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": [100, 200],
-                "Enr_End": [200, 300],
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 200],
+            "Enr_End": [200, 300],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        assert result.n_failed == 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "enrollment", schema)
+            assert result is not None
+            assert result.n_failed == 0
+        finally:
+            conn.close()
 
-    def test_returns_none_for_non_enrollment_table(self) -> None:
+    def test_returns_none_for_non_enrollment_table(self, tmp_path: Path) -> None:
         """Test that non-enrollment tables return None."""
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "Birth_Date": [1000],
-                "Sex": ["F"],
-                "Hispanic": ["Y"],
-                "Race": ["1"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "Birth_Date": [1000],
+            "Sex": ["F"],
+            "Hispanic": ["Y"],
+            "Race": ["1"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is None
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "demographic", schema)
+            assert result is None
+        finally:
+            conn.close()
 
-    def test_check_id_216_and_severity_warn(self) -> None:
-        """Test AC4.3: Check 216 has correct check_id and severity."""
+    def test_check_id_216_and_severity_warn(self, tmp_path: Path) -> None:
+        """Test GH-7.AC7.1, GH-7.AC7.2: Check 216 has correct check_id and severity."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "PlanID": ["PL1"],
-                "Enr_Start": [100],
-                "Enr_End": [200],
-                "PlanType": ["HMO"],
-                "PayerType": ["Commercial"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "PlanID": ["PL1"],
+            "Enr_Start": [100],
+            "Enr_End": [200],
+            "PlanType": ["HMO"],
+            "PayerType": ["Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        assert result.check_id == "216"
-        assert result.severity == "Warn"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "enrollment", schema)
+            assert result is not None
+            assert result.check_id == "216"
+            assert result.severity == "Warn"
+        finally:
+            conn.close()
 
-    def test_multiple_patients_with_gaps(self) -> None:
+    def test_multiple_patients_with_gaps(self, tmp_path: Path) -> None:
         """Test gap detection across multiple patients."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
         # P1 has a gap, P2 has no gap
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1", "P2", "P2"],
-                "PlanID": ["PL1", "PL2", "PL3", "PL4"],
-                "Enr_Start": [100, 300, 500, 501],
-                "Enr_End": [200, 400, 550, 650],
-                "PlanType": ["HMO", "HMO", "PPO", "PPO"],
-                "PayerType": ["Commercial", "Commercial", "Medicare", "Medicare"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1", "P2", "P2"],
+            "PlanID": ["PL1", "PL2", "PL3", "PL4"],
+            "Enr_Start": [100, 300, 500, 501],
+            "Enr_End": [200, 400, 550, 650],
+            "PlanType": ["HMO", "HMO", "PPO", "PPO"],
+            "PayerType": ["Commercial", "Commercial", "Medicare", "Medicare"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        # P1 has 1 gap row (the second span), P2 has 0
-        assert result.n_failed == 1
-        assert result.n_passed == 3
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "enrollment", schema)
+            assert result is not None
+            # P1 has 1 gap row (the second span), P2 has 0
+            assert result.n_failed == 1
+            assert result.n_passed == 3
+        finally:
+            conn.close()
 
-    def test_gaps_across_chunks(self) -> None:
-        """Test gap detection across chunk boundaries."""
+    def test_integer_dates(self, tmp_path: Path) -> None:
+        """Test that integer dates are handled correctly."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "PlanID": ["PL1"],
-                "Enr_Start": [100],
-                "Enr_End": [200],
-                "PlanType": ["HMO"],
-                "PayerType": ["Commercial"],
-            }),
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "PlanID": ["PL2"],
-                "Enr_Start": [300],
-                "Enr_End": [400],
-                "PlanType": ["HMO"],
-                "PayerType": ["Commercial"],
-            }),
-        ])
+        # Integer dates with gaps
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 300],
+            "Enr_End": [200, 400],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        assert result.n_failed > 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "enrollment", schema)
+            assert result is not None
+            assert result.n_failed > 0
+        finally:
+            conn.close()
 
-    def test_date_type_handling(self) -> None:
-        """Test that both Date and integer dtypes are handled correctly."""
-        schema = get_schema("enrollment")
-        # Use pl.Date dtype instead of integers
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": pl.Series(
-                    "Enr_Start",
-                    ["2020-01-01", "2020-02-01"],
-                    dtype=pl.Date,
-                ),
-                "Enr_End": pl.Series(
-                    "Enr_End",
-                    ["2020-01-31", "2020-02-28"],
-                    dtype=pl.Date,
-                ),
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
-
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        # Contiguous dates should pass
-        assert result.n_failed == 0
-
-    def test_failing_rows_sampled(self) -> None:
+    def test_failing_rows_sampled(self, tmp_path: Path) -> None:
         """Test that failing rows are captured correctly."""
+        pytest.importorskip("duckdb")
         schema = get_schema("enrollment")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P1"],
-                "PlanID": ["PL1", "PL2"],
-                "Enr_Start": [100, 300],
-                "Enr_End": [200, 400],
-                "PlanType": ["HMO", "HMO"],
-                "PayerType": ["Commercial", "Commercial"],
-            }),
-        ])
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1"],
+            "PlanID": ["PL1", "PL2"],
+            "Enr_Start": [100, 300],
+            "Enr_End": [200, 400],
+            "PlanType": ["HMO", "HMO"],
+            "PayerType": ["Commercial", "Commercial"],
+        })
+        path = tmp_path / "enrollment.parquet"
+        df.write_parquet(path)
 
-        result = check_enrollment_gaps(schema, chunks)
-        assert result is not None
-        assert result.n_failed > 0
-        assert result.failing_rows is not None
-        assert result.failing_rows.height > 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "enrollment" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_enrollment_gaps(conn, "enrollment", schema)
+            assert result is not None
+            assert result.n_failed > 0
+            assert result.failing_rows is not None
+            assert result.failing_rows.height > 0
+        finally:
+            conn.close()
 
 
 class TestEncCombinations:
-    """Test suite for check_enc_combinations (L2 checks 244, 245)."""
+    """Test suite for check_enc_combinations (L2 checks 244, 245) using DuckDB views."""
 
-    def test_invalid_combo_ip_missing_ddate(self) -> None:
-        """Test AC2.4: Check 244 flags IP rows where DDate is null (required)."""
+    def test_invalid_combo_ip_missing_ddate(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.4: Check 244 flags IP rows where DDate is null (required)."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncType": ["IP", "IP"],
-                "DDate": [None, 1500],  # E1 missing DDate (invalid for IP)
-                "Discharge_Disposition": ["1", "2"],
-                "Discharge_Status": ["A", "A"],
-                "Admitting_Source": ["01", "01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2"],
+            "PatID": ["P1", "P2"],
+            "EncounterDate": [1000, 2000],
+            "EncType": ["IP", "IP"],
+            "DDate": [None, 1500],  # E1 missing DDate (invalid for IP)
+            "Discharge_Disposition": ["1", "2"],
+            "Discharge_Status": ["A", "A"],
+            "Admitting_Source": ["01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        # Should have check 244 result
-        check_244 = next(r for r in results if r.check_id == "244")
-        assert check_244.n_failed == 1  # E1 is invalid
-        assert check_244.n_passed == 1
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_valid_combo_ip_all_fields(self) -> None:
-        """Test AC2.4: Check 244 passes when IP has all required fields."""
+            # Should have check 244 result
+            check_244 = next(r for r in results if r.check_id == "244")
+            assert check_244.n_failed == 1  # E1 is invalid
+            assert check_244.n_passed == 1
+        finally:
+            conn.close()
+
+    def test_valid_combo_ip_all_fields(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.4: Check 244 passes when IP has all required fields."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncType": ["IP"],
-                "DDate": [1500],  # DDate present
-                "Discharge_Disposition": ["1"],  # Present
-                "Discharge_Status": ["A"],  # Present
-                "Admitting_Source": ["01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncType": ["IP"],
+            "DDate": [1500],  # DDate present
+            "Discharge_Disposition": ["1"],  # Present
+            "Discharge_Status": ["A"],  # Present
+            "Admitting_Source": ["01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_244 = next(r for r in results if r.check_id == "244")
-        assert check_244.n_failed == 0
-        assert check_244.n_passed == 1
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_invalid_combo_ip_missing_discharge_disposition(self) -> None:
-        """Test AC2.4: Check 244 flags IP rows where Discharge_Disposition is null (required)."""
+            check_244 = next(r for r in results if r.check_id == "244")
+            assert check_244.n_failed == 0
+            assert check_244.n_passed == 1
+        finally:
+            conn.close()
+
+    def test_invalid_combo_ip_missing_discharge_disposition(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.4: Check 244 flags IP rows where Discharge_Disposition is null (required)."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncType": ["IP", "IP"],
-                "DDate": [1500, 1600],  # Both have DDate present
-                "Discharge_Disposition": [None, "2"],  # E1 missing Discharge_Disposition (invalid for IP)
-                "Discharge_Status": ["A", "A"],
-                "Admitting_Source": ["01", "01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2"],
+            "PatID": ["P1", "P2"],
+            "EncounterDate": [1000, 2000],
+            "EncType": ["IP", "IP"],
+            "DDate": [1500, 1600],  # Both have DDate present
+            "Discharge_Disposition": [None, "2"],  # E1 missing Discharge_Disposition (invalid for IP)
+            "Discharge_Status": ["A", "A"],
+            "Admitting_Source": ["01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_244 = next(r for r in results if r.check_id == "244")
-        assert check_244.n_failed == 1  # E1 is invalid
-        assert check_244.n_passed == 1
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_invalid_combo_ip_missing_discharge_status(self) -> None:
-        """Test AC2.4: Check 244 flags IP rows where Discharge_Status is null (required)."""
+            check_244 = next(r for r in results if r.check_id == "244")
+            assert check_244.n_failed == 1  # E1 is invalid
+            assert check_244.n_passed == 1
+        finally:
+            conn.close()
+
+    def test_invalid_combo_ip_missing_discharge_status(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.4: Check 244 flags IP rows where Discharge_Status is null (required)."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncType": ["IP", "IP"],
-                "DDate": [1500, 1600],  # Both have DDate present
-                "Discharge_Disposition": ["1", "2"],
-                "Discharge_Status": [None, "A"],  # E1 missing Discharge_Status (invalid for IP)
-                "Admitting_Source": ["01", "01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2"],
+            "PatID": ["P1", "P2"],
+            "EncounterDate": [1000, 2000],
+            "EncType": ["IP", "IP"],
+            "DDate": [1500, 1600],  # Both have DDate present
+            "Discharge_Disposition": ["1", "2"],
+            "Discharge_Status": [None, "A"],  # E1 missing Discharge_Status (invalid for IP)
+            "Admitting_Source": ["01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_244 = next(r for r in results if r.check_id == "244")
-        assert check_244.n_failed == 1  # E1 is invalid
-        assert check_244.n_passed == 1
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_valid_combo_av_with_nulls(self) -> None:
-        """Test AC2.4: Check 244 passes when AV has null DDate, Disposition, Status."""
+            check_244 = next(r for r in results if r.check_id == "244")
+            assert check_244.n_failed == 1  # E1 is invalid
+            assert check_244.n_passed == 1
+        finally:
+            conn.close()
+
+    def test_valid_combo_av_with_nulls(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.4: Check 244 passes when AV has null DDate, Disposition, Status."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncType": ["AV"],
-                "DDate": [None],  # Null is OK for AV
-                "Discharge_Disposition": [None],  # Null is OK for AV
-                "Discharge_Status": [None],  # Null is OK for AV
-                "Admitting_Source": ["01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncType": ["AV"],
+            "DDate": [None],  # Null is OK for AV
+            "Discharge_Disposition": [None],  # Null is OK for AV
+            "Discharge_Status": [None],  # Null is OK for AV
+            "Admitting_Source": ["01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_244 = next(r for r in results if r.check_id == "244")
-        assert check_244.n_failed == 0
-        assert check_244.n_passed == 1
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_threshold_exceeded_check_245(self) -> None:
-        """Test AC2.5: Check 245 flags EncType groups exceeding threshold."""
+            check_244 = next(r for r in results if r.check_id == "244")
+            assert check_244.n_failed == 0
+            assert check_244.n_passed == 1
+        finally:
+            conn.close()
+
+    def test_threshold_exceeded_check_245(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.5: Check 245 flags EncType groups exceeding threshold."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
         # Create 100 IP rows, 10 invalid (10% > 5% threshold)
         ip_rows = []
@@ -1731,16 +1793,26 @@ class TestEncCombinations:
                     "Admitting_Source": "01",
                 })
 
-        chunks = iter([pl.DataFrame(ip_rows)])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame(ip_rows)
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_245_ip = next((r for r in results if r.check_id == "245" and "IP" in r.column), None)
-        assert check_245_ip is not None
-        assert check_245_ip.n_failed == 10  # 10% exceeds 5% threshold
-        assert check_245_ip.n_passed == 90  # Remaining valid rows
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_threshold_not_exceeded_check_245(self) -> None:
-        """Test AC2.5: Check 245 passes when EncType group is under threshold."""
+            check_245_ip = next((r for r in results if r.check_id == "245" and "IP" in r.column), None)
+            assert check_245_ip is not None
+            assert check_245_ip.n_failed == 10  # 10% exceeds 5% threshold
+            assert check_245_ip.n_passed == 90  # Remaining valid rows
+        finally:
+            conn.close()
+
+    def test_threshold_not_exceeded_check_245(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.5: Check 245 passes when EncType group is under threshold."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
         # Create 100 IP rows, 3 invalid (3% < 5% threshold)
         ip_rows = []
@@ -1770,127 +1842,162 @@ class TestEncCombinations:
                     "Admitting_Source": "01",
                 })
 
-        chunks = iter([pl.DataFrame(ip_rows)])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame(ip_rows)
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_245_ip = next((r for r in results if r.check_id == "245" and "IP" in r.column), None)
-        assert check_245_ip is not None
-        assert check_245_ip.n_failed == 0  # 3% under threshold
-        assert check_245_ip.n_passed == 100
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_unknown_enctype_flagged(self) -> None:
-        """Test that unknown EncType values are flagged as invalid."""
+            check_245_ip = next((r for r in results if r.check_id == "245" and "IP" in r.column), None)
+            assert check_245_ip is not None
+            assert check_245_ip.n_failed == 0  # 3% under threshold
+            assert check_245_ip.n_passed == 100
+        finally:
+            conn.close()
+
+    def test_unknown_enctype_flagged(self, tmp_path: Path) -> None:
+        """Test GH-7.AC5.6: Unknown EncType values are flagged as invalid."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncType": ["IP", "XX"],  # XX is unknown
-                "DDate": [1500, 1600],
-                "Discharge_Disposition": ["1", "2"],
-                "Discharge_Status": ["A", "A"],
-                "Admitting_Source": ["01", "01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2"],
+            "PatID": ["P1", "P2"],
+            "EncounterDate": [1000, 2000],
+            "EncType": ["IP", "XX"],  # XX is unknown
+            "DDate": [1500, 1600],
+            "Discharge_Disposition": ["1", "2"],
+            "Discharge_Status": ["A", "A"],
+            "Admitting_Source": ["01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_244 = next(r for r in results if r.check_id == "244")
-        assert check_244.n_failed == 1  # E2 has unknown EncType
-        assert check_244.n_passed == 1
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_non_encounter_table_returns_empty(self) -> None:
+            check_244 = next(r for r in results if r.check_id == "244")
+            assert check_244.n_failed == 1  # E2 has unknown EncType
+            assert check_244.n_passed == 1
+        finally:
+            conn.close()
+
+    def test_non_encounter_table_returns_empty(self, tmp_path: Path) -> None:
         """Test that non-encounter tables return empty list."""
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "Birth_Date": [1000],
-                "Sex": ["F"],
-                "Hispanic": ["Y"],
-                "Race": ["1"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
-        assert results == []
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "Birth_Date": [1000],
+            "Sex": ["F"],
+            "Hispanic": ["Y"],
+            "Race": ["1"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-    def test_missing_required_columns_returns_empty(self) -> None:
-        """Test that missing required columns returns empty list."""
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "demographic", schema)
+            assert results == []
+        finally:
+            conn.close()
+
+    def test_check_244_has_correct_id(self, tmp_path: Path) -> None:
+        """Test GH-7.AC7.1, GH-7.AC7.2: Check 244 result has check_id='244' and severity='Fail'."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                # Missing EncType, DDate, Discharge_Disposition, Discharge_Status
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
-        assert results == []
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncType": ["IP"],
+            "DDate": [1500],
+            "Discharge_Disposition": ["1"],
+            "Discharge_Status": ["A"],
+            "Admitting_Source": ["01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-    def test_check_244_has_correct_id(self) -> None:
-        """Test AC4.1: Check 244 result has check_id='244'."""
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
+
+            check_244 = next(r for r in results if r.check_id == "244")
+            assert check_244.check_id == "244"
+            assert check_244.severity == "Fail"
+        finally:
+            conn.close()
+
+    def test_check_245_has_correct_id(self, tmp_path: Path) -> None:
+        """Test GH-7.AC7.1, GH-7.AC7.2: Check 245 result has check_id='245' and severity='Fail'."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncType": ["IP"],
-                "DDate": [1500],
-                "Discharge_Disposition": ["1"],
-                "Discharge_Status": ["A"],
-                "Admitting_Source": ["01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncType": ["IP"],
+            "DDate": [1500],
+            "Discharge_Disposition": ["1"],
+            "Discharge_Status": ["A"],
+            "Admitting_Source": ["01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_244 = next(r for r in results if r.check_id == "244")
-        assert check_244.check_id == "244"
-        assert check_244.severity == "Fail"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
 
-    def test_check_245_has_correct_id(self) -> None:
-        """Test AC4.1: Check 245 result has check_id='245'."""
-        schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncType": ["IP"],
-                "DDate": [1500],
-                "Discharge_Disposition": ["1"],
-                "Discharge_Status": ["A"],
-                "Admitting_Source": ["01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+            check_245_results = [r for r in results if r.check_id == "245"]
+            assert len(check_245_results) > 0
+            for result in check_245_results:
+                assert result.check_id == "245"
+                assert result.severity == "Fail"
+        finally:
+            conn.close()
 
-        check_245_results = [r for r in results if r.check_id == "245"]
-        assert len(check_245_results) > 0
-        for result in check_245_results:
-            assert result.check_id == "245"
-            assert result.severity == "Fail"
-
-    def test_multiple_enctypes_multiple_checks_245(self) -> None:
+    def test_multiple_enctypes_multiple_checks_245(self, tmp_path: Path) -> None:
         """Test that check 245 has one result per EncType with non-zero count."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2", "E3"],
-                "PatID": ["P1", "P2", "P3"],
-                "EncounterDate": [1000, 2000, 3000],
-                "EncType": ["IP", "ED", "AV"],
-                "DDate": [1500, None, None],
-                "Discharge_Disposition": ["1", None, None],
-                "Discharge_Status": ["A", None, None],
-                "Admitting_Source": ["01", "01", "01"],
-            }),
-        ])
-        results = check_enc_combinations(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3"],
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterDate": [1000, 2000, 3000],
+            "EncType": ["IP", "ED", "AV"],
+            "DDate": [1500, None, None],
+            "Discharge_Disposition": ["1", None, None],
+            "Discharge_Status": ["A", None, None],
+            "Admitting_Source": ["01", "01", "01"],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        check_245_results = [r for r in results if r.check_id == "245"]
-        # Should have results for IP, ED, AV (all have non-zero count)
-        assert len(check_245_results) == 3
-        enctypes = {r.column.split("=")[1] for r in check_245_results}
-        assert enctypes == {"IP", "ED", "AV"}
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_enc_combinations(conn, "encounter", schema)
+
+            check_245_results = [r for r in results if r.check_id == "245"]
+            # Should have results for IP, ED, AV (all have non-zero count)
+            assert len(check_245_results) == 3
+            enctypes = {r.column.split("=")[1] for r in check_245_results}
+            assert enctypes == {"IP", "ED", "AV"}
+        finally:
+            conn.close()

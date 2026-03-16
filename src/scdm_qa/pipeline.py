@@ -244,18 +244,16 @@ def _process_table(
                 if overlap_step is not None:
                     global_steps.append(overlap_step)
 
-                gaps_reader = create_reader(file_path, chunk_size=config.chunk_size)
                 gaps_step = check_enrollment_gaps(
-                    schema, gaps_reader.chunks(),
+                    conn, table_key, schema,
                     max_failing_rows=config.max_failing_rows,
                 )
                 if gaps_step is not None:
                     global_steps.append(gaps_step)
 
             if schema.table_key == "encounter":
-                enc_combo_reader = create_reader(file_path, chunk_size=config.chunk_size)
                 enc_combo_steps = check_enc_combinations(
-                    schema, enc_combo_reader.chunks(),
+                    conn, table_key, schema,
                     max_failing_rows=config.max_failing_rows,
                 )
                 global_steps.extend(enc_combo_steps)
