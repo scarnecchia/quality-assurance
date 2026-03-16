@@ -9,7 +9,11 @@ import pyarrow.parquet as pq
 import pyreadstat
 import pytest
 
-from scdm_qa.validation.cross_table import _convert_sas_to_parquet
+from scdm_qa.schemas import get_schema
+from scdm_qa.validation.cross_table import (
+    _SCDM_TYPE_MAP,
+    _convert_sas_to_parquet,
+)
 
 _DATA_DIR = os.environ.get("SCDM_SAS_DATA_DIR", "")
 _DATA_PATH = Path(_DATA_DIR) if _DATA_DIR else None
@@ -116,6 +120,12 @@ class TestSasStreamingIntegration:
         """
         sas_path, table_key = self._find_sas_file()
 
+        # Get SCDM spec for this table
+        try:
+            table_schema = get_schema(table_key)
+        except KeyError:
+            pytest.skip(f"No SCDM spec for table_key={table_key}")
+
         # Convert
         parquet_path = _convert_sas_to_parquet(
             sas_path, chunk_size=100, table_key=table_key
@@ -126,12 +136,21 @@ class TestSasStreamingIntegration:
             parquet_meta = pq.read_metadata(str(parquet_path))
             schema = parquet_meta.schema.to_arrow_schema()
 
-            # Verify schema is readable and has expected structure
             assert schema is not None
             assert len(schema) > 0, "Schema should have at least one field"
 
-            # All fields should have valid types
-            for field in schema:
-                assert field.type is not None, f"Field {field.name} has no type"
+            # Build lookup of field name to type
+            schema_lookup = {field.name: field.type for field in schema}
+
+            # For each column in SCDM spec, verify its output type is canonical
+            for col in table_schema.columns:
+                if col.name in schema_lookup:
+                    expected_type = _SCDM_TYPE_MAP.get(col.col_type)
+                    if expected_type is not None:
+                        actual_type = schema_lookup[col.name]
+                        assert actual_type == expected_type, (
+                            f"Column {col.name}: expected {expected_type}, "
+                            f"got {actual_type}"
+                        )
         finally:
             parquet_path.unlink()
