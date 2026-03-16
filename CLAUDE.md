@@ -46,7 +46,7 @@ Last verified: 2026-03-11
 - Exit codes are severity-aware: 0=pass (no non-Note failures), 1=warnings (failures within threshold), 2=errors or threshold exceeded (Note-severity checks are informational and never escalate exit code)
 
 ## Configuration
-TOML config with `[tables]` section mapping table keys to file paths, plus `[options]` for chunk_size, max_failing_rows, error_threshold, output_dir, custom_rules_dir, log_file, verbose, run_l1, run_l2.
+TOML config with `[tables]` section mapping table keys to file paths, plus `[options]` for chunk_size, max_failing_rows, error_threshold, output_dir, custom_rules_dir, log_file, verbose, run_l1, run_l2, duckdb_memory_limit, duckdb_threads, duckdb_temp_directory.
 
 ## Boundaries
 - Safe to edit: `src/`, `tests/`

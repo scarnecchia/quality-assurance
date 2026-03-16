@@ -49,3 +49,8 @@ run_l2 = true
 
 # Verbose console output
 verbose = false
+
+# DuckDB resource constraints (cross-table checks and uniqueness checks)
+# duckdb_memory_limit = "96GB"
+# duckdb_threads = 10
+# duckdb_temp_directory = "/tmp/scdm-qa-duckdb"
