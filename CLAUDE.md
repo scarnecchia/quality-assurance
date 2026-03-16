@@ -1,13 +1,13 @@
 # SCDM Quality Assurance
 
-Last verified: 2026-03-10
+Last verified: 2026-03-11
 
 ## Tech Stack
 - Language: Python 3.12+
 - CLI: Typer
 - Data: Polars (DataFrames), pointblank (validation rules)
 - Formats: Parquet (pyarrow), SAS7BDAT (pyreadstat)
-- Reporting: Jinja2, great-tables
+- Reporting: Jinja2, vendored Tabulator + Plotly (self-contained HTML dashboard)
 - Logging: structlog
 - Build: uv (uv_build backend)
 - Testing: pytest
@@ -31,7 +31,7 @@ Last verified: 2026-03-10
   - `readers/` - Chunked file readers (Parquet, SAS) behind a Protocol
   - `validation/` - Per-chunk validation runner, accumulator, L0/L1/L2 global checks, cross-table validation engine
   - `profiling/` - Streaming column statistics accumulator
-  - `reporting/` - HTML report builder and multi-table index page
+  - `reporting/` - Dashboard report generator (serialise.py, dashboard.py, Jinja2 templates, vendored JS/CSS)
 - `tests/` - pytest tests (one file per module)
 - `docs/implementation-plans/` - Phase plans (reference only)
 
@@ -46,8 +46,8 @@ Last verified: 2026-03-10
 - Exit codes are severity-aware: 0=pass (no non-Note failures), 1=warnings (failures within threshold), 2=errors or threshold exceeded (Note-severity checks are informational and never escalate exit code)
 
 ## Configuration
-TOML config with `[tables]` section mapping table keys to file paths, plus `[options]` for chunk_size, max_failing_rows, error_threshold, output_dir, custom_rules_dir, log_file, verbose, run_l1, run_l2.
+TOML config with `[tables]` section mapping table keys to file paths, plus `[options]` for chunk_size, max_failing_rows, error_threshold, output_dir, custom_rules_dir, log_file, verbose, run_l1, run_l2, duckdb_memory_limit, duckdb_threads, duckdb_temp_directory.
 
 ## Boundaries
 - Safe to edit: `src/`, `tests/`
-- Do not edit: `uv.lock`, `src/scdm_qa/schemas/tables_documentation.json` (upstream SCDM spec), `src/scdm_qa/schemas/code_checks.json`, `src/scdm_qa/schemas/cross_table_checks.json`
+- Do not edit: `uv.lock`, `src/scdm_qa/schemas/tables_documentation.json` (upstream SCDM spec)

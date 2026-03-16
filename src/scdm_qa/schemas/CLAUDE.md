@@ -23,7 +23,7 @@ Parses the upstream SCDM specification into typed data models and builds pointbl
 ## Invariants
 - `TableSchema`, `ColumnDef`, `ConditionalRule`, `L1CheckDef`, `DateOrderingDef`, `FormatCheckDef`, `LengthCheckDef`, `CrossTableCheckDef` are all frozen dataclasses
 - `table_key` is the normalised lowercase key used everywhere as the canonical table identifier
-- `tables_documentation.json`, `code_checks.json`, `cross_table_checks.json` must not be edited (upstream artifacts)
+- `tables_documentation.json` must not be edited (upstream artifact)
 
 ## Key Files
 - `models.py` - `TableSchema`, `ColumnDef`, `ConditionalRule`, `L1CheckDef`, `DateOrderingDef`, `FormatCheckDef`, `LengthCheckDef`, `CrossTableCheckDef` dataclasses

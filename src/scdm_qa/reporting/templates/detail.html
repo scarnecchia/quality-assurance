@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+
+{% block content %}
+<a href="index.html" class="back-link">← Back to Index</a>
+
+<h1>{{ page_title }}</h1>
+
+<!-- Header stats -->
+<div class="stat-cards">
+    <div class="stat-card">
+        <div class="label">Total Rows</div>
+        <div class="value" id="stat-total-rows">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Chunks Processed</div>
+        <div class="value" id="stat-chunks">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Pass Rate</div>
+        <div class="value" id="stat-pass-rate">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Total Checks</div>
+        <div class="value" id="stat-checks">—</div>
+    </div>
+</div>
+
+<!-- Validation checks section -->
+<div class="section">
+    <h2>Validation Checks</h2>
+    <button class="download-btn" id="download-validation-csv">Download CSV</button>
+    <div id="validation-table"></div>
+</div>
+
+<!-- Profiling section placeholder (Phase 5) -->
+<div class="section" id="profiling-section" style="display:none;">
+    <h2>Data Profile</h2>
+    <div id="profiling-table"></div>
+</div>
+
+<!-- Failing rows placeholder (Phase 5) -->
+<div class="section" id="failing-rows-section" style="display:none;">
+    <h2>Failing Rows</h2>
+    <div id="failing-rows-container"></div>
+</div>
+
+<!-- Embedded JSON data -->
+<script type="application/json" id="dashboard-data">{{ dashboard_json|safe }}</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var raw = document.getElementById("dashboard-data").textContent;
+    var data = JSON.parse(raw);
+    var validation = data.validation;
+    var steps = validation.steps;
+
+    // --- Header stats ---
+    var totalChecks = steps.length;
+    var passed = steps.filter(function(s) { return s.n_failed === 0; }).length;
+    var passRate = totalChecks > 0
+        ? ((passed / totalChecks) * 100).toFixed(1) + "%"
+        : "—";
+
+    document.getElementById("stat-total-rows").textContent =
+        validation.total_rows.toLocaleString();
+    document.getElementById("stat-chunks").textContent =
+        validation.chunks_processed.toLocaleString();
+    document.getElementById("stat-pass-rate").textContent = passRate;
+    document.getElementById("stat-checks").textContent = totalChecks;
+
+    // --- Validation checks table ---
+    var tableData = steps.map(function(s) {
+        return {
+            check_id: s.check_id || "—",
+            assertion_type: s.assertion_type,
+            column: s.column,
+            description: s.description,
+            n_passed: s.n_passed,
+            n_failed: s.n_failed,
+            pass_rate: (s.pass_rate * 100).toFixed(1),
+            severity: s.severity || "—"
+        };
+    });
+
+    var severityRank = { "Fail": 3, "Warn": 2, "Note": 1, "—": 0 };
+
+    var validationTable = new Tabulator("#validation-table", {
+        data: tableData,
+        layout: "fitColumns",
+        columns: [
+            {
+                title: "Check ID",
+                field: "check_id",
+                width: 100,
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Type",
+                field: "assertion_type",
+                width: 160,
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Column",
+                field: "column",
+                width: 130,
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Description",
+                field: "description",
+                headerFilter: true,
+                sorter: "string"
+            },
+            {
+                title: "Passed",
+                field: "n_passed",
+                width: 90,
+                sorter: "number",
+                hozAlign: "right",
+                formatter: function(cell) {
+                    return cell.getValue().toLocaleString();
+                }
+            },
+            {
+                title: "Failed",
+                field: "n_failed",
+                width: 90,
+                sorter: "number",
+                hozAlign: "right",
+                formatter: function(cell) {
+                    var v = cell.getValue();
+                    if (v > 0) cell.getElement().classList.add("severity-fail");
+                    return v.toLocaleString();
+                }
+            },
+            {
+                title: "Pass Rate",
+                field: "pass_rate",
+                width: 100,
+                sorter: "number",
+                hozAlign: "right",
+                formatter: function(cell) {
+                    return cell.getValue() + "%";
+                }
+            },
+            {
+                title: "Severity",
+                field: "severity",
+                width: 100,
+                headerFilter: true,
+                sorter: function(a, b) {
+                    return (severityRank[a] || 0) - (severityRank[b] || 0);
+                },
+                formatter: function(cell) {
+                    var v = cell.getValue();
+                    var cls = { "Fail": "severity-fail", "Warn": "severity-warn", "Note": "severity-note" };
+                    if (cls[v]) cell.getElement().classList.add(cls[v]);
+                    return v;
+                }
+            }
+        ],
+        rowFormatter: function(row) {
+            var sev = row.getData().severity;
+            if (sev === "Fail" && row.getData().n_failed > 0) {
+                row.getElement().style.backgroundColor = "#fff5f5";
+            } else if (sev === "Warn" && row.getData().n_failed > 0) {
+                row.getElement().style.backgroundColor = "#fffbf0";
+            }
+        },
+        initialSort: [
+            { column: "severity", dir: "desc" },
+            { column: "n_failed", dir: "desc" }
+        ]
+    });
+
+    // CSV download
+    document.getElementById("download-validation-csv").addEventListener("click", function() {
+        validationTable.download("csv", "validation-checks.csv");
+    });
+
+    // --- Profiling section ---
+    var profiling = data.profiling;
+    if (profiling && profiling.columns && profiling.columns.length > 0) {
+        document.getElementById("profiling-section").style.display = "block";
+
+        var profilingData = profiling.columns.map(function(col) {
+            return {
+                name: col.name,
+                col_type: col.col_type,
+                completeness: col.completeness_pct,
+                distinct_count: col.distinct_count,
+                min_value: col.min_value || "—",
+                max_value: col.max_value || "—"
+            };
+        });
+
+        new Tabulator("#profiling-table", {
+            data: profilingData,
+            layout: "fitColumns",
+            columns: [
+                { title: "Column", field: "name", headerFilter: true, sorter: "string" },
+                { title: "Type", field: "col_type", width: 100, headerFilter: true, sorter: "string" },
+                {
+                    title: "Completeness",
+                    field: "completeness",
+                    width: 120,
+                    sorter: "number",
+                    hozAlign: "right",
+                    formatter: function(cell) {
+                        var v = cell.getValue();
+                        if (v < 95) {
+                            cell.getElement().classList.add("low-completeness");
+                        }
+                        return v.toFixed(1) + "%";
+                    }
+                },
+                {
+                    title: "Distinct",
+                    field: "distinct_count",
+                    width: 100,
+                    sorter: "number",
+                    hozAlign: "right",
+                    formatter: function(cell) {
+                        return cell.getValue().toLocaleString();
+                    }
+                },
+                { title: "Min", field: "min_value", width: 120, sorter: "string" },
+                { title: "Max", field: "max_value", width: 120, sorter: "string" }
+            ]
+        });
+    }
+
+    // --- Failing rows sections ---
+    var failingSteps = steps.filter(function(s) {
+        return s.n_failed > 0 && s.failing_rows && s.failing_rows.length > 0;
+    });
+
+    if (failingSteps.length > 0) {
+        document.getElementById("failing-rows-section").style.display = "block";
+        var container = document.getElementById("failing-rows-container");
+
+        failingSteps.forEach(function(step, idx) {
+            var checkLabel = step.check_id || ("Step " + step.step_index);
+            var sectionId = "failing-rows-" + idx;
+            var tableId = "failing-table-" + idx;
+
+            // Create collapsible section
+            var header = document.createElement("div");
+            header.className = "collapsible-header";
+            header.textContent = checkLabel + ": " + step.description +
+                " (" + step.n_failed.toLocaleString() + " failures)";
+
+            var body = document.createElement("div");
+            body.className = "collapsible-body";
+            body.id = sectionId;
+
+            // Download button
+            var downloadBtn = document.createElement("button");
+            downloadBtn.className = "download-btn";
+            downloadBtn.textContent = "Download CSV";
+            downloadBtn.id = "download-failing-" + idx;
+            body.appendChild(downloadBtn);
+
+            // Table container
+            var tableDiv = document.createElement("div");
+            tableDiv.id = tableId;
+            body.appendChild(tableDiv);
+
+            container.appendChild(header);
+            container.appendChild(body);
+
+            // Toggle collapse
+            header.addEventListener("click", function() {
+                header.classList.toggle("open");
+                body.classList.toggle("open");
+            });
+
+            // Build columns from failing row keys
+            var rows = step.failing_rows;
+            var columns = [];
+            if (rows.length > 0) {
+                columns = Object.keys(rows[0]).map(function(key) {
+                    return { title: key, field: key, headerFilter: true, sorter: "string" };
+                });
+            }
+
+            var failingTable = new Tabulator("#" + tableId, {
+                data: rows,
+                layout: "fitColumns",
+                columns: columns,
+                maxHeight: 400
+            });
+
+            // CSV download for this section
+            downloadBtn.addEventListener("click", function() {
+                failingTable.download("csv", checkLabel + "-failing-rows.csv");
+            });
+        });
+    }
+})();
+</script>
+{% endblock %}

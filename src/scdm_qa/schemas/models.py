@@ -85,10 +85,15 @@ class CrossTableCheckDef:
     source_table: str  # primary table for this check
     reference_table: str | None  # join target (None for single-table checks like 224)
 
-    # Column configuration (interpretation depends on check_type)
-    source_column: str | None  # e.g. "PatID" for referential_integrity
-    reference_column: str | None  # e.g. "PatID" for join column in reference table
-    target_column: str | None  # secondary column (e.g. date column for cross_date_compare)
+    # Column configuration
+    # referential_integrity: join_column = column to check (e.g. "PatID"), join_reference_column = matching column in reference table
+    # length_consistency: join_column = column to compare lengths of across tables
+    # cross_date_compare: join_column/join_reference_column = join keys, compare_column = date on source, compare_reference_column = date on reference
+    # length_excess: join_column = column to check actual vs declared length
+    join_column: str | None  # column on source table (join key, or column being checked)
+    join_reference_column: str | None  # column on reference table (join key)
+    compare_column: str | None  # source date column for cross_date_compare (e.g. "ADate")
+    compare_reference_column: str | None = None  # reference date column for cross_date_compare (e.g. "Birth_Date")
 
     # For column_mismatch (check 224): compare two columns in same table
     column_a: str | None = None  # e.g. "Hispanic"

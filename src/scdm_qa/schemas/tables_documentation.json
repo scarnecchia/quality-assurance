@@ -1613,6 +1613,513 @@
           ],
           "definition": "Indicates whether the laboratory test result in Data Partner's source data is Numeric (e.g., 100 ug/mL, <100 ug/mL, or >100 ug/mL) or Character (e.g., +, POS, POSITIVE, or ranges, such as 50-100 mg/mL). Unknown value is populated when MS_Test_Name = Unmapped",
           "example": "N"
+        },
+        {
+          "name": "MS_Test_Sub_Category",
+          "missing_allowed": "Yes, conditional on MS_Test_Name",
+          "type": "Character",
+          "length": 6,
+          "values": "See Reference Tables",
+          "definition": "Sub-category for specific test names only.",
+          "example": "PCR"
+        },
+        {
+          "name": "Fast_Ind",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "F",
+              "description": "Fasting"
+            },
+            {
+              "code": "R",
+              "description": "Random/Non-fasting"
+            },
+            {
+              "code": "X",
+              "description": "Not applicable"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Fasting Indicator. Not all laboratory tests are differentiated by fasting status.",
+          "example": "F"
+        },
+        {
+          "name": "Specimen_Source",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 7,
+          "values": "See Reference Tables",
+          "definition": "Specimen source. Populated for all records.",
+          "example": "SERUM"
+        },
+        {
+          "name": "LOINC",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 10,
+          "values": "LOINC codes",
+          "definition": "Logical Observation Identifiers, Names, and Codes.",
+          "example": "16182-8",
+          "notes": [
+            "Includes hyphen; no leading zeros removed"
+          ]
+        },
+        {
+          "name": "Stat",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "E",
+              "description": "Emergent/STAT"
+            },
+            {
+              "code": "R",
+              "description": "Routine"
+            },
+            {
+              "code": "S",
+              "description": "Standing"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Immediacy of test. Determines if routine or emergent.",
+          "example": "E"
+        },
+        {
+          "name": "Pt_Loc",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "E",
+              "description": "Emergency Department"
+            },
+            {
+              "code": "H",
+              "description": "Home"
+            },
+            {
+              "code": "I",
+              "description": "Inpatient"
+            },
+            {
+              "code": "O",
+              "description": "Outpatient"
+            },
+            {
+              "code": "U",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Patient location where the lab specimen was obtained.",
+          "example": "O"
+        },
+        {
+          "name": "Result_Loc",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 1,
+          "values": [
+            {
+              "code": "L",
+              "description": "Lab"
+            },
+            {
+              "code": "P",
+              "description": "Point of care"
+            }
+          ],
+          "definition": "Location of the test result. Default is L.",
+          "example": "L"
+        },
+        {
+          "name": "LOCAL_CD",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Data Partner-specific codes",
+          "definition": "Local code (non-LOINC) related to an individual lab test. For local programmer use only."
+        },
+        {
+          "name": "BATTERY_CD",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Data Partner-specific codes",
+          "definition": "Local code related to a battery or panel of lab tests. For local programmer use only."
+        },
+        {
+          "name": "PX",
+          "missing_allowed": "Yes, conditional on PX_CodeType",
+          "type": "Character",
+          "length": "variable",
+          "values": "Procedure codes",
+          "definition": "Procedure Code associated with the laboratory result record.",
+          "example": "76815"
+        },
+        {
+          "name": "PX_CodeType",
+          "missing_allowed": "Yes, conditional on PX",
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "09",
+              "description": "ICD-9-CM"
+            },
+            {
+              "code": "10",
+              "description": "ICD-10-PCS"
+            },
+            {
+              "code": "11",
+              "description": "ICD-11-PCS"
+            },
+            {
+              "code": "C2",
+              "description": "CPT Category II"
+            },
+            {
+              "code": "C3",
+              "description": "CPT Category III"
+            },
+            {
+              "code": "C4",
+              "description": "CPT-4"
+            },
+            {
+              "code": "CP",
+              "description": "CPT"
+            },
+            {
+              "code": "CX",
+              "description": "custom CPT extension"
+            },
+            {
+              "code": "H3",
+              "description": "HCPCS Level III"
+            },
+            {
+              "code": "HC",
+              "description": "HCPCS"
+            },
+            {
+              "code": "LO",
+              "description": "Local homegrown"
+            },
+            {
+              "code": "RE",
+              "description": "Revenue"
+            },
+            {
+              "code": "SK",
+              "description": "stacking code"
+            },
+            {
+              "code": "OT",
+              "description": "Other"
+            }
+          ],
+          "definition": "Procedure code type associated with the laboratory result record.",
+          "example": "C4"
+        },
+        {
+          "name": "Order_dt",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date that the test was ordered.",
+          "example": "11/9/2009"
+        },
+        {
+          "name": "Lab_dt",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date that the specimen was collected.",
+          "example": "11/21/2009",
+          "notes": [
+            "Most relevant date variable for Sentinel activities"
+          ]
+        },
+        {
+          "name": "Lab_tm",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS time (00:00-23:59)",
+          "definition": "Time of day that the specimen was collected.",
+          "example": "15:15"
+        },
+        {
+          "name": "Result_dt",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS date",
+          "definition": "Date that the laboratory test was resulted.",
+          "example": "11/22/2009"
+        },
+        {
+          "name": "Result_tm",
+          "missing_allowed": true,
+          "type": "Numeric",
+          "length": 4,
+          "values": "SAS time (00:00-23:59)",
+          "definition": "Time that the laboratory test was resulted.",
+          "example": "2:33"
+        },
+        {
+          "name": "Orig_Result",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 50,
+          "values": "Text",
+          "definition": "Original result value, stripped of modifiers and units for numeric results; reflects source data for character results.",
+          "example": "+"
+        },
+        {
+          "name": "MS_Result_C",
+          "missing_allowed": "Yes, conditional on Result_Type",
+          "type": "Character",
+          "length": 50,
+          "values": [
+            {
+              "code": "BORDERLINE",
+              "description": "Borderline"
+            },
+            {
+              "code": "NEGATIVE",
+              "description": "Negative"
+            },
+            {
+              "code": "POSITIVE",
+              "description": "Positive"
+            },
+            {
+              "code": "UNDETERMINED",
+              "description": "Undetermined"
+            },
+            {
+              "code": "RANGE",
+              "description": "Range"
+            }
+          ],
+          "definition": "Standardized result value for character results only.",
+          "example": "POSITIVE"
+        },
+        {
+          "name": "MS_Result_N",
+          "missing_allowed": "Yes, conditional on Result_Type",
+          "type": "Numeric",
+          "length": 8,
+          "values": "Numeric digits with optional decimal",
+          "definition": "Standardized/converted numeric result for numeric types.",
+          "example": "100"
+        },
+        {
+          "name": "Modifier",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "EQ",
+              "description": "Equal"
+            },
+            {
+              "code": "GE",
+              "description": "Greater than or equal"
+            },
+            {
+              "code": "GT",
+              "description": "Greater than"
+            },
+            {
+              "code": "LE",
+              "description": "Less than or equal"
+            },
+            {
+              "code": "LT",
+              "description": "Less than"
+            },
+            {
+              "code": "TX",
+              "description": "Text"
+            },
+            {
+              "code": "UN",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Modifier for result values, reflecting relational operators.",
+          "example": "LE"
+        },
+        {
+          "name": "Orig_Result_unit",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 20,
+          "values": "Text",
+          "definition": "Original units for the test result, as reported in source data.",
+          "example": "10^9/L"
+        },
+        {
+          "name": "Std_Result_unit",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": 11,
+          "values": "Text",
+          "definition": "Standardized units as intermediary step to MS_Result_unit.",
+          "example": "CELL/MM3"
+        },
+        {
+          "name": "MS_Result_unit",
+          "missing_allowed": "Yes, conditional",
+          "type": "Character",
+          "length": 11,
+          "values": "Text",
+          "definition": "Converted/standardized result units for MS_Result_N values. Set to UNKNOWN when missing.",
+          "example": "G/L"
+        },
+        {
+          "name": "Norm_Range_low",
+          "missing_allowed": "Yes, conditional on Result_Type",
+          "type": "Character",
+          "length": 8,
+          "values": "Text",
+          "definition": "Lower bound of normal reference range assigned by laboratory.",
+          "example": "100"
+        },
+        {
+          "name": "Modifier_low",
+          "missing_allowed": "Yes, conditional on Norm_Range_low",
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "EQ",
+              "description": "Equal"
+            },
+            {
+              "code": "GE",
+              "description": "Greater than or equal"
+            },
+            {
+              "code": "GT",
+              "description": "Greater than"
+            }
+          ],
+          "definition": "Modifier for Norm_Range_low values.",
+          "example": "EQ"
+        },
+        {
+          "name": "Norm_Range_high",
+          "missing_allowed": "Yes, conditional on Result_Type",
+          "type": "Character",
+          "length": 8,
+          "values": "Text",
+          "definition": "Upper bound of normal reference range assigned by laboratory.",
+          "example": "300"
+        },
+        {
+          "name": "Modifier_high",
+          "missing_allowed": "Yes, conditional on Norm_Range_high",
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "EQ",
+              "description": "Equal"
+            },
+            {
+              "code": "LE",
+              "description": "Less than or equal"
+            },
+            {
+              "code": "LT",
+              "description": "Less than"
+            }
+          ],
+          "definition": "Modifier for Norm_Range_high values.",
+          "example": "LT"
+        },
+        {
+          "name": "Abn_ind",
+          "missing_allowed": false,
+          "type": "Character",
+          "length": 2,
+          "values": [
+            {
+              "code": "AB",
+              "description": "Abnormal"
+            },
+            {
+              "code": "AH",
+              "description": "Abnormally high"
+            },
+            {
+              "code": "AL",
+              "description": "Abnormally low"
+            },
+            {
+              "code": "CH",
+              "description": "Critically high"
+            },
+            {
+              "code": "CL",
+              "description": "Critically low"
+            },
+            {
+              "code": "CR",
+              "description": "Critical"
+            },
+            {
+              "code": "IN",
+              "description": "Inconclusive"
+            },
+            {
+              "code": "NL",
+              "description": "Normal"
+            },
+            {
+              "code": "UN",
+              "description": "Unknown"
+            }
+          ],
+          "definition": "Abnormal result indicator from source data, not programmatically derived.",
+          "example": "CR"
+        },
+        {
+          "name": "Order_dept",
+          "missing_allowed": true,
+          "type": "Character",
+          "length": "variable",
+          "values": "Data Partner-specific codes",
+          "definition": "Local code for ordering provider department. Populate only if available."
+        },
+        {
+          "name": "FacilityID",
+          "missing_allowed": false,
+          "type": "Numeric",
+          "length": "variable",
+          "values": "Facility identifier",
+          "definition": "Local facility pseudo-identifier identifying hospital or clinic. Set to .U if unavailable.",
+          "example": "12345678"
         }
       ]
     },

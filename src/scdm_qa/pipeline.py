@@ -9,8 +9,7 @@ from scdm_qa.config import QAConfig
 from scdm_qa.profiling.accumulator import ProfilingAccumulator
 from scdm_qa.profiling.results import ProfilingResult
 from scdm_qa.readers import create_reader
-from scdm_qa.reporting.builder import save_table_report
-from scdm_qa.reporting.index import ReportSummary, make_report_summary, save_index
+from scdm_qa.reporting.dashboard import save_dashboard
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.schemas.custom_rules import load_custom_rules
@@ -53,7 +52,7 @@ def run_pipeline(
         tables = {table_filter: tables[table_filter]}
 
     outcomes: list[TableOutcome] = []
-    report_summaries: list[ReportSummary] = []
+    dashboard_results: list[tuple[ValidationResult, ProfilingResult]] = []
 
     # L1: Per-table validation
     if config.run_l1:
@@ -69,21 +68,7 @@ def run_pipeline(
                 outcomes.append(outcome)
 
                 if outcome.validation_result and outcome.profiling_result:
-                    save_table_report(
-                        config.output_dir,
-                        table_key,
-                        outcome.validation_result,
-                        outcome.profiling_result,
-                    )
-                    report_summaries.append(
-                        make_report_summary(
-                            table_key,
-                            outcome.validation_result.table_name,
-                            outcome.validation_result.total_rows,
-                            len(outcome.validation_result.steps),
-                            outcome.validation_result.total_failures,
-                        )
-                    )
+                    dashboard_results.append((outcome.validation_result, outcome.profiling_result))
                 elif outcome.profiling_result:
                     # Profile-only mode: create a report with just profiling data
                     empty_vr = ValidationResult(
@@ -93,21 +78,7 @@ def run_pipeline(
                         total_rows=outcome.profiling_result.total_rows,
                         chunks_processed=0,
                     )
-                    save_table_report(
-                        config.output_dir,
-                        table_key,
-                        empty_vr,
-                        outcome.profiling_result,
-                    )
-                    report_summaries.append(
-                        make_report_summary(
-                            table_key,
-                            outcome.profiling_result.table_name,
-                            outcome.profiling_result.total_rows,
-                            0,
-                            0,
-                        )
-                    )
+                    dashboard_results.append((empty_vr, outcome.profiling_result))
 
             except Exception as exc:
                 log.error("table processing failed", table=table_key, error=str(exc))
@@ -150,28 +121,18 @@ def run_pipeline(
                         total_rows=0,
                         columns=(),
                     )
-                    save_table_report(
-                        config.output_dir,
-                        "cross_table",
-                        cross_table_vr,
-                        empty_profiling,
-                    )
-                    report_summaries.append(
-                        make_report_summary(
-                            "cross_table",
-                            "Cross-Table Checks",
-                            0,
-                            len(cross_table_steps),
-                            sum(s.n_failed for s in cross_table_steps),
-                        )
-                    )
+                    dashboard_results.append((cross_table_vr, empty_profiling))
 
         except Exception as exc:
             log.error("cross-table validation failed", error=str(exc))
             outcomes.append(TableOutcome(table_key="cross_table", success=False, error=str(exc)))
 
-    if report_summaries:
-        save_index(config.output_dir, report_summaries)
+    if dashboard_results:
+        save_dashboard(
+            config.output_dir,
+            dashboard_results,
+            max_failing_rows=config.max_failing_rows,
+        )
 
     return outcomes
 
@@ -222,6 +183,9 @@ def _process_table(
             schema,
             chunks=uniqueness_reader.chunks(),
             max_failing_rows=config.max_failing_rows,
+            duckdb_memory_limit=config.duckdb_memory_limit,
+            duckdb_threads=config.duckdb_threads,
+            duckdb_temp_directory=config.duckdb_temp_directory,
         )
         if uniqueness_step is not None:
             global_steps.append(uniqueness_step)
@@ -258,6 +222,9 @@ def _process_table(
         overlap_step = check_overlapping_spans(
             file_path, schema, overlap_reader.chunks(),
             max_failing_rows=config.max_failing_rows,
+            duckdb_memory_limit=config.duckdb_memory_limit,
+            duckdb_threads=config.duckdb_threads,
+            duckdb_temp_directory=config.duckdb_temp_directory,
         )
         if overlap_step is not None:
             global_steps.append(overlap_step)

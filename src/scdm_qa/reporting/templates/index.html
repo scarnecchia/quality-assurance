@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>SCDM-QA Dashboard</h1>
+
+<!-- Stat cards -->
+<div class="stat-cards">
+    <div class="stat-card">
+        <div class="label">Total Checks</div>
+        <div class="value" id="stat-total-checks">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Pass Rate</div>
+        <div class="value" id="stat-pass-rate">—</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Total Failures</div>
+        <div class="value severity-fail" id="stat-total-failures">—</div>
+    </div>
+</div>
+
+<!-- Charts row -->
+<div class="charts-row">
+    <div class="chart-container" id="donut-chart"></div>
+    <div class="chart-container" id="bar-chart"></div>
+</div>
+
+<!-- Summary table -->
+<h2>Tables</h2>
+<div id="summary-table"></div>
+
+<!-- Embedded JSON data -->
+<script type="application/json" id="dashboard-data">{{ dashboard_json|safe }}</script>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    var raw = document.getElementById("dashboard-data").textContent;
+    var data = JSON.parse(raw);
+    var summary = data.summary;
+    var tables = data.tables;
+
+    // --- Stat cards ---
+    var totalChecks = summary.total_checks;
+    var totalFailures = summary.total_failures;
+    var bySeverity = summary.by_severity;
+    var passRate = totalChecks > 0
+        ? ((bySeverity.pass / totalChecks) * 100).toFixed(1) + "%"
+        : "—";
+
+    document.getElementById("stat-total-checks").textContent = totalChecks.toLocaleString();
+    document.getElementById("stat-pass-rate").textContent = passRate;
+    document.getElementById("stat-total-failures").textContent = totalFailures.toLocaleString();
+
+    // --- Donut chart ---
+    var severityLabels = ["Pass", "Fail", "Warn", "Note"];
+    var severityValues = [
+        bySeverity.pass || 0,
+        bySeverity.Fail || 0,
+        bySeverity.Warn || 0,
+        bySeverity.Note || 0
+    ];
+    var severityColors = ["#28a745", "#dc3545", "#ffc107", "#6c757d"];
+
+    Plotly.newPlot("donut-chart", [{
+        values: severityValues,
+        labels: severityLabels,
+        type: "pie",
+        hole: 0.5,
+        marker: { colors: severityColors },
+        hoverinfo: "label+percent+value",
+        textinfo: "label+value"
+    }], {
+        title: "Check Results",
+        height: 350,
+        margin: { t: 40, b: 20, l: 20, r: 20 },
+        showlegend: true
+    }, { displayModeBar: false });
+
+    // --- Bar chart: pass rate per table, sorted worst-first ---
+    var tableKeys = Object.keys(tables);
+    var barData = tableKeys.map(function(key) {
+        var t = tables[key];
+        var v = t.validation;
+        var steps = v.steps;
+        var total = steps.length;
+        var passed = steps.filter(function(s) { return s.n_failed === 0; }).length;
+        var rate = total > 0 ? (passed / total) * 100 : 100;
+        return { name: v.table_name, rate: rate, key: key };
+    });
+    barData.sort(function(a, b) { return a.rate - b.rate; });
+
+    // Colour scale: red (0%) → yellow (50%) → green (100%)
+    function rateToColor(rate) {
+        if (rate < 50) {
+            var t = rate / 50;
+            var r = 220; var g = Math.round(53 + t * (199 - 53));
+            return "rgb(" + r + "," + g + ",69)";
+        } else {
+            var t2 = (rate - 50) / 50;
+            var r2 = Math.round(255 - t2 * (255 - 40)); var g2 = Math.round(193 + t2 * (167 - 193));
+            return "rgb(" + r2 + "," + g2 + ",69)";
+        }
+    }
+
+    Plotly.newPlot("bar-chart", [{
+        type: "bar",
+        x: barData.map(function(d) { return d.rate; }),
+        y: barData.map(function(d) { return d.name; }),
+        orientation: "h",
+        marker: { color: barData.map(function(d) { return rateToColor(d.rate); }) },
+        hovertemplate: "%{y}: %{x:.1f}%<extra></extra>"
+    }], {
+        title: "Pass Rate by Table",
+        xaxis: { title: "Pass Rate (%)", range: [0, 105] },
+        yaxis: { automargin: true },
+        height: Math.max(250, barData.length * 35 + 80),
+        margin: { l: 150, r: 20, t: 40, b: 40 }
+    }, { displayModeBar: false });
+
+    // --- Summary table ---
+    var tableRows = tableKeys.map(function(key) {
+        var t = tables[key];
+        var v = t.validation;
+        var steps = v.steps;
+        var total = steps.length;
+        var failures = steps.reduce(function(sum, s) { return sum + s.n_failed; }, 0);
+        var passed = steps.filter(function(s) { return s.n_failed === 0; }).length;
+        var rate = total > 0 ? ((passed / total) * 100).toFixed(1) : "100.0";
+
+        // Worst severity among failing steps
+        var severityRank = { "Fail": 3, "Warn": 2, "Note": 1 };
+        var worstSeverity = "—";
+        steps.forEach(function(s) {
+            if (s.n_failed > 0 && s.severity) {
+                if (!worstSeverity || worstSeverity === "—" ||
+                    (severityRank[s.severity] || 0) > (severityRank[worstSeverity] || 0)) {
+                    worstSeverity = s.severity;
+                }
+            }
+        });
+
+        return {
+            table_key: key,
+            table_name: v.table_name,
+            total_rows: v.total_rows,
+            checks: total,
+            failures: failures,
+            pass_rate: parseFloat(rate),
+            worst_severity: worstSeverity
+        };
+    });
+
+    var summaryTable = new Tabulator("#summary-table", {
+        data: tableRows,
+        layout: "fitColumns",
+        columns: [
+            { title: "Table", field: "table_name", headerFilter: true, sorter: "string" },
+            { title: "Rows", field: "total_rows", sorter: "number", formatter: function(cell) {
+                return cell.getValue().toLocaleString();
+            }},
+            { title: "Checks", field: "checks", sorter: "number" },
+            { title: "Failures", field: "failures", sorter: "number", formatter: function(cell) {
+                var v = cell.getValue();
+                if (v > 0) cell.getElement().classList.add("severity-fail");
+                return v.toLocaleString();
+            }},
+            { title: "Pass Rate", field: "pass_rate", sorter: "number", formatter: function(cell) {
+                return cell.getValue().toFixed(1) + "%";
+            }},
+            { title: "Worst Severity", field: "worst_severity", headerFilter: true, sorter: "string", formatter: function(cell) {
+                var v = cell.getValue();
+                var cls = { "Fail": "severity-fail", "Warn": "severity-warn", "Note": "severity-note" };
+                if (cls[v]) cell.getElement().classList.add(cls[v]);
+                return v;
+            }}
+        ],
+        initialSort: [{ column: "pass_rate", dir: "asc" }]
+    });
+
+    summaryTable.on("rowClick", function(e, row) {
+        window.location.href = row.getData().table_key + ".html";
+    });
+})();
+</script>
+{% endblock %}

@@ -21,7 +21,6 @@ dispensing = "/path/to/dispensing.parquet"
 # provider = "/path/to/provider.parquet"
 # facility = "/path/to/facility.parquet"
 # death = "/path/to/death.parquet"
-# address_history = "/path/to/address_history.parquet"
 
 [options]
 # Directory for HTML report output
@@ -50,3 +49,8 @@ run_l2 = true
 
 # Verbose console output
 verbose = false
+
+# DuckDB resource constraints (cross-table checks and uniqueness checks)
+# duckdb_memory_limit = "96GB"
+# duckdb_threads = 10
+# duckdb_temp_directory = "/tmp/scdm-qa-duckdb"

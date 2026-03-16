@@ -25,9 +25,9 @@ class TestCrossTableCheckDef:
             description="PatID in diagnosis but not in enrollment",
             source_table="diagnosis",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
             column_a=None,
             column_b=None,
             table_group=None,
@@ -36,8 +36,8 @@ class TestCrossTableCheckDef:
         assert check.check_type == "referential_integrity"
         assert check.source_table == "diagnosis"
         assert check.reference_table == "enrollment"
-        assert check.source_column == "PatID"
-        assert check.reference_column == "PatID"
+        assert check.join_column == "PatID"
+        assert check.join_reference_column == "PatID"
 
     def test_length_consistency_check_creation(self):
         """Construct a length_consistency CrossTableCheckDef."""
@@ -48,9 +48,9 @@ class TestCrossTableCheckDef:
             description="PatID length consistency across tables",
             source_table="enrollment",
             reference_table=None,
-            source_column="PatID",
-            reference_column=None,
-            target_column=None,
+            join_column="PatID",
+            join_reference_column=None,
+            compare_column=None,
             column_a=None,
             column_b=None,
             table_group=("enrollment", "demographic", "diagnosis"),
@@ -58,7 +58,7 @@ class TestCrossTableCheckDef:
         assert check.check_id == "203"
         assert check.check_type == "length_consistency"
         assert check.table_group == ("enrollment", "demographic", "diagnosis")
-        assert check.source_column == "PatID"
+        assert check.join_column == "PatID"
 
     def test_cross_date_compare_check_creation(self):
         """Construct a cross_date_compare CrossTableCheckDef."""
@@ -69,16 +69,17 @@ class TestCrossTableCheckDef:
             description="Enr_Start before Birth_Date",
             source_table="enrollment",
             reference_table="demographic",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column="Enr_Start",
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column="Enr_Start",
+            compare_reference_column="Birth_Date",
             column_a=None,
             column_b=None,
             table_group=None,
         )
         assert check.check_id == "205"
         assert check.check_type == "cross_date_compare"
-        assert check.target_column == "Enr_Start"
+        assert check.compare_column == "Enr_Start"
         assert check.reference_table == "demographic"
 
     def test_length_excess_check_creation(self):
@@ -90,16 +91,16 @@ class TestCrossTableCheckDef:
             description="Actual PatID length much smaller than declared",
             source_table="diagnosis",
             reference_table=None,
-            source_column="PatID",
-            reference_column=None,
-            target_column=None,
+            join_column="PatID",
+            join_reference_column=None,
+            compare_column=None,
             column_a=None,
             column_b=None,
             table_group=None,
         )
         assert check.check_id == "209"
         assert check.check_type == "length_excess"
-        assert check.source_column == "PatID"
+        assert check.join_column == "PatID"
 
     def test_column_mismatch_check_creation(self):
         """Construct a column_mismatch CrossTableCheckDef."""
@@ -110,9 +111,9 @@ class TestCrossTableCheckDef:
             description="Hispanic must not differ from ImputedHispanic",
             source_table="demographic",
             reference_table=None,
-            source_column=None,
-            reference_column=None,
-            target_column=None,
+            join_column=None,
+            join_reference_column=None,
+            compare_column=None,
             column_a="Hispanic",
             column_b="ImputedHispanic",
             table_group=None,
@@ -132,9 +133,9 @@ class TestCrossTableCheckDef:
             description="PatID in diagnosis but not in enrollment",
             source_table="diagnosis",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
             column_a=None,
             column_b=None,
             table_group=None,
@@ -151,9 +152,9 @@ class TestCrossTableCheckDef:
             description="Test description",
             source_table="diagnosis",
             reference_table="enrollment",
-            source_column="PatID",
-            reference_column="PatID",
-            target_column=None,
+            join_column="PatID",
+            join_reference_column="PatID",
+            compare_column=None,
             column_a=None,
             column_b=None,
             table_group=None,
@@ -164,9 +165,9 @@ class TestCrossTableCheckDef:
         assert check.description == "Test description"
         assert check.source_table == "diagnosis"
         assert check.reference_table == "enrollment"
-        assert check.source_column == "PatID"
-        assert check.reference_column == "PatID"
-        assert check.target_column is None
+        assert check.join_column == "PatID"
+        assert check.join_reference_column == "PatID"
+        assert check.compare_column is None
         assert check.column_a is None
         assert check.column_b is None
         assert check.table_group is None
@@ -276,8 +277,8 @@ class TestCrossTableChecksParser:
         checks = get_cross_table_checks()
         ref_int_checks = [c for c in checks if c.check_type == "referential_integrity"]
         for check in ref_int_checks:
-            assert check.source_column is not None
-            assert check.reference_column is not None
+            assert check.join_column is not None
+            assert check.join_reference_column is not None
             assert check.reference_table is not None
 
     def test_column_mismatch_has_column_a_and_b(self):
