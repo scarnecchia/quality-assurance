@@ -21,7 +21,6 @@ dispensing = "/path/to/dispensing.parquet"
 # provider = "/path/to/provider.parquet"
 # facility = "/path/to/facility.parquet"
 # death = "/path/to/death.parquet"
-# address_history = "/path/to/address_history.parquet"
 
 [options]
 # Directory for HTML report output

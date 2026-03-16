@@ -603,7 +603,7 @@
       "check_type": "cross_date_compare",
       "severity": "Fail",
       "description": "PostalCode_Date must not be before Birth_Date",
-      "source_table": "address_history",
+      "source_table": "demographic",
       "reference_table": "demographic",
       "source_column": "PatID",
       "reference_column": "PatID",

@@ -32,6 +32,7 @@ def tmp_tables(tmp_path: Path) -> dict[str, Path]:
         "Birth_Date": [19800101, 19850315, 19900515],
         "Hispanic": ["Y", "N", "Y"],
         "ImputedHispanic": ["Y", "N", "Y"],
+        "PostalCode_Date": [20200105, 20200120, 19800101],  # P003 has date before birth
     })
     tables["demographic"] = tmp_path / "demographic.parquet"
     demographic_df.write_parquet(tables["demographic"])
@@ -66,14 +67,6 @@ def tmp_tables(tmp_path: Path) -> dict[str, Path]:
     })
     tables["encounter"] = tmp_path / "encounter.parquet"
     encounter_df.write_parquet(tables["encounter"])
-
-    # address_history table
-    address_df = pl.DataFrame({
-        "PatID": ["P001", "P002", "P003"],
-        "PostalCode_Date": [20200105, 20200120, 19800101],  # P003 has date before birth
-    })
-    tables["address_history"] = tmp_path / "address_history.parquet"
-    address_df.write_parquet(tables["address_history"])
 
     return tables
 
@@ -373,7 +366,7 @@ class TestCrossDateCompare:
             check_type="cross_date_compare",
             severity="Fail",
             description="PostalCode_Date must not be before Birth_Date",
-            source_table="address_history",
+            source_table="demographic",
             reference_table="demographic",
             source_column="PatID",
             reference_column="PatID",

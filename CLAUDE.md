@@ -50,4 +50,4 @@ TOML config with `[tables]` section mapping table keys to file paths, plus `[opt
 
 ## Boundaries
 - Safe to edit: `src/`, `tests/`
-- Do not edit: `uv.lock`, `src/scdm_qa/schemas/tables_documentation.json` (upstream SCDM spec), `src/scdm_qa/schemas/code_checks.json`, `src/scdm_qa/schemas/cross_table_checks.json`
+- Do not edit: `uv.lock`, `src/scdm_qa/schemas/tables_documentation.json` (upstream SCDM spec)
