@@ -10,11 +10,11 @@ _CHECK_122_DEFS: tuple[L1CheckDef, ...] = (
     L1CheckDef("122", "inpatient_pharmacy", "NDC", "leading_spaces", "Warn"),
     L1CheckDef("122", "inpatient_pharmacy", "RxRoute", "leading_spaces", "Warn"),
     L1CheckDef("122", "inpatient_pharmacy", "RxUOM", "leading_spaces", "Warn"),
-    L1CheckDef("122", "lab_result", "LOINC", "leading_spaces", "Warn"),
-    L1CheckDef("122", "lab_result", "MS_Result_unit", "leading_spaces", "Warn"),
-    L1CheckDef("122", "lab_result", "Norm_Range_low", "leading_spaces", "Warn"),
-    L1CheckDef("122", "lab_result", "Norm_Range_high", "leading_spaces", "Warn"),
-    L1CheckDef("122", "tranx", "TransCode", "leading_spaces", "Warn"),
+    L1CheckDef("122", "laboratory", "LOINC", "leading_spaces", "Warn"),
+    L1CheckDef("122", "laboratory", "MS_Result_unit", "leading_spaces", "Warn"),
+    L1CheckDef("122", "laboratory", "Norm_Range_low", "leading_spaces", "Warn"),
+    L1CheckDef("122", "laboratory", "Norm_Range_high", "leading_spaces", "Warn"),
+    L1CheckDef("122", "inpatient_transfusion", "TransCode", "leading_spaces", "Warn"),
 )
 
 # Check 124: Unexpected zeros in numeric fields

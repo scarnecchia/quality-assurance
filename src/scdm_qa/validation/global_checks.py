@@ -35,7 +35,7 @@ _TABLE_KEY_TO_SAS_ID: dict[str, str] = {
     "vital_signs": "VIT",
     "patient_reported_response": "PRR",
     "patient_reported_survey": "PRS",
-    "tranx": "TXN",
+    "inpatient_transfusion": "TXN",
 }
 
 
