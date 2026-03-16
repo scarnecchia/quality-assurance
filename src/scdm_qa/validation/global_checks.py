@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import duckdb
-import polars as pl
 import structlog
 
 from scdm_qa.schemas.checks import (
