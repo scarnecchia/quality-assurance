@@ -135,26 +135,82 @@ class TestUniqueness:
 
 
 class TestSortOrder:
-    def test_detects_sort_break_at_boundary(self) -> None:
+    def test_intra_chunk_sort_violation_detected(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        # Chunk 1 ends with P3, chunk 2 starts with P1 — sort order break
-        chunks = iter([
-            pl.DataFrame({"PatID": ["P1", "P3"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [3, 4], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-        ])
-        result = check_sort_order(schema, chunks)
-        assert result is not None
-        assert result.n_failed > 0
+        # Single chunk with rows [P3, P1, P2] — violates sort order
+        df = pl.DataFrame({
+            "PatID": ["P3", "P1", "P2"],
+            "Birth_Date": [2, 1, 3],
+            "Sex": ["M", "F", "M"],
+            "Hispanic": ["N", "Y", "N"],
+            "Race": ["2", "1", "2"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-    def test_correctly_sorted_passes(self) -> None:
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_sort_order(conn, "demographic", schema)
+            assert result is not None
+            # P1 row violates sort (P3 > P1)
+            assert result.n_failed > 0
+            assert result.check_id == "102"
+        finally:
+            conn.close()
+
+    def test_correctly_sorted_passes(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-            pl.DataFrame({"PatID": ["P3", "P4"], "Birth_Date": [3, 4], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-        ])
-        result = check_sort_order(schema, chunks)
-        assert result is not None
-        assert result.n_failed == 0
+        # Correctly sorted rows [P1, P2, P3]
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2", "P3"],
+            "Birth_Date": [1, 2, 3],
+            "Sex": ["F", "M", "F"],
+            "Hispanic": ["Y", "N", "Y"],
+            "Race": ["1", "2", "1"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_sort_order(conn, "demographic", schema)
+            assert result is not None
+            assert result.n_failed == 0
+            assert result.n_passed == 3
+        finally:
+            conn.close()
+
+    def test_equal_adjacent_rows_pass(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
+        schema = get_schema("demographic")
+        # Equal adjacent rows: [P1, P1, P2] — should pass (equal is not a violation)
+        df = pl.DataFrame({
+            "PatID": ["P1", "P1", "P2"],
+            "Birth_Date": [1, 1, 2],
+            "Sex": ["F", "F", "M"],
+            "Hispanic": ["Y", "Y", "N"],
+            "Race": ["1", "1", "2"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_sort_order(conn, "demographic", schema)
+            assert result is not None
+            assert result.n_failed == 0
+            assert result.check_id == "102"
+            assert result.severity == "Fail"
+        finally:
+            conn.close()
 
 
 class TestGlobalCheckCheckIds:
@@ -182,206 +238,254 @@ class TestGlobalCheckCheckIds:
         finally:
             conn.close()
 
-    def test_sort_order_check_has_check_id_102(self) -> None:
+    def test_sort_order_check_has_check_id_102(self, tmp_path: Path) -> None:
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({"PatID": ["P1", "P2"], "Birth_Date": [1, 2], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-            pl.DataFrame({"PatID": ["P3", "P4"], "Birth_Date": [3, 4], "Sex": ["F", "M"], "Hispanic": ["Y", "N"], "Race": ["1", "2"]}),
-        ])
-        result = check_sort_order(schema, chunks)
-        assert result is not None
-        assert result.check_id == "102"
-        assert result.severity == "Fail"
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2", "P3", "P4"],
+            "Birth_Date": [1, 2, 3, 4],
+            "Sex": ["F", "M", "F", "M"],
+            "Hispanic": ["Y", "N", "Y", "N"],
+            "Race": ["1", "2", "1", "2"],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
+
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            result = check_sort_order(conn, "demographic", schema)
+            assert result is not None
+            assert result.check_id == "102"
+            assert result.severity == "Fail"
+        finally:
+            conn.close()
 
 
 class TestNotPopulated:
-    def test_detects_entirely_null_column(self) -> None:
+    def test_detects_entirely_null_column(self, tmp_path: Path) -> None:
         """Test AC1.1: Check 111 flags columns with zero non-null records as not populated."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
         # DDate is a check-111 target column. All nulls → should fail.
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncounterType": ["IP", "OP"],
-                "DDate": [None, None],
-                "Discharge_Disposition": [None, None],
-                "Discharge_Status": [None, None],
-                "Admitting_Source": [None, None],
-            }),
-            pl.DataFrame({
-                "EncounterID": ["E3"],
-                "PatID": ["P3"],
-                "EncounterDate": [3000],
-                "EncounterType": ["ED"],
-                "DDate": [None],
-                "Discharge_Disposition": [None],
-                "Discharge_Status": [None],
-                "Admitting_Source": [None],
-            }),
-        ])
-        results = check_not_populated(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3"],
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterDate": [1000, 2000, 3000],
+            "EncounterType": ["IP", "OP", "ED"],
+            "DDate": [None, None, None],
+            "Discharge_Disposition": [None, None, None],
+            "Discharge_Status": [None, None, None],
+            "Admitting_Source": [None, None, None],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        # Should have results for DDate, Discharge_Disposition, Discharge_Status, Admitting_Source
-        assert len(results) == 4
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_not_populated(conn, "encounter", schema)
 
-        ddate_result = next(r for r in results if r.column == "DDate")
-        assert ddate_result.n_failed == 3  # 3 total rows, all failed
-        assert ddate_result.n_passed == 0
-        assert ddate_result.check_id == "111"
+            # Should have results for DDate, Discharge_Disposition, Discharge_Status, Admitting_Source
+            assert len(results) == 4
 
-    def test_populated_column_passes(self) -> None:
+            ddate_result = next(r for r in results if r.column == "DDate")
+            assert ddate_result.n_failed == 3  # 3 total rows, all failed
+            assert ddate_result.n_passed == 0
+            assert ddate_result.check_id == "111"
+        finally:
+            conn.close()
+
+    def test_populated_column_passes(self, tmp_path: Path) -> None:
         """Test AC1.1: Check 111 passes when target column has at least one non-null value."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncounterType": ["IP", "OP"],
-                "DDate": [1001, None],  # At least one non-null
-                "Discharge_Disposition": ["1", None],
-                "Discharge_Status": ["A", None],
-                "Admitting_Source": ["01", None],
-            }),
-        ])
-        results = check_not_populated(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2"],
+            "PatID": ["P1", "P2"],
+            "EncounterDate": [1000, 2000],
+            "EncounterType": ["IP", "OP"],
+            "DDate": [1001, None],  # At least one non-null
+            "Discharge_Disposition": ["1", None],
+            "Discharge_Status": ["A", None],
+            "Admitting_Source": ["01", None],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        # DDate has one non-null → should pass
-        ddate_result = next(r for r in results if r.column == "DDate")
-        assert ddate_result.n_failed == 0
-        assert ddate_result.n_passed == 2
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_not_populated(conn, "encounter", schema)
 
-    def test_only_registry_columns_checked(self) -> None:
+            # DDate has one non-null → should pass
+            ddate_result = next(r for r in results if r.column == "DDate")
+            assert ddate_result.n_failed == 0
+            assert ddate_result.n_passed == 2
+        finally:
+            conn.close()
+
+    def test_only_registry_columns_checked(self, tmp_path: Path) -> None:
         """Test AC1.5: Only check-111 target columns are checked, not all columns."""
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
         # Race is NOT a check-111 target, but is entirely null
         # ImputedHispanic and ImputedRace ARE check-111 targets
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1", "P2"],
-                "Birth_Date": [1000, 2000],
-                "Sex": ["F", "M"],
-                "Hispanic": ["Y", "N"],
-                "Race": [None, None],  # All null but NOT a check-111 target
-                "ImputedHispanic": ["Y", "N"],  # Check-111 target, populated
-                "ImputedRace": [None, None],  # Check-111 target, not populated
-            }),
-        ])
-        results = check_not_populated(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": [None, None],  # All null but NOT a check-111 target
+            "ImputedHispanic": ["Y", "N"],  # Check-111 target, populated
+            "ImputedRace": [None, None],  # Check-111 target, not populated
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-        # Should have 2 results (ImputedHispanic and ImputedRace), not 3
-        assert len(results) == 2
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_not_populated(conn, "demographic", schema)
 
-        # Race should NOT appear in results
-        race_results = [r for r in results if r.column == "Race"]
-        assert len(race_results) == 0
+            # Should have 2 results (ImputedHispanic and ImputedRace), not 3
+            assert len(results) == 2
 
-        # ImputedRace should fail
-        imputed_race = next(r for r in results if r.column == "ImputedRace")
-        assert imputed_race.n_failed == 2
+            # Race should NOT appear in results
+            race_results = [r for r in results if r.column == "Race"]
+            assert len(race_results) == 0
 
-    def test_no_check_defs_returns_empty_list(self) -> None:
+            # ImputedRace should fail
+            imputed_race = next(r for r in results if r.column == "ImputedRace")
+            assert imputed_race.n_failed == 2
+        finally:
+            conn.close()
+
+    def test_no_check_defs_returns_empty_list(self, tmp_path: Path) -> None:
         """Test that tables with no check-111 definitions return empty list."""
+        pytest.importorskip("duckdb")
         schema = get_schema("vital_signs")  # No check-111 defs
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "VitalsDate": [1000],
-                "HT": [None],
-            }),
-        ])
-        results = check_not_populated(schema, chunks)
-        assert results == []
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "VitalsDate": [1000],
+            "HT": [None],
+        })
+        path = tmp_path / "vital_signs.parquet"
+        df.write_parquet(path)
 
-    def test_check_id_is_111(self) -> None:
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "vital_signs" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_not_populated(conn, "vital_signs", schema)
+            assert results == []
+        finally:
+            conn.close()
+
+    def test_check_id_is_111(self, tmp_path: Path) -> None:
         """Test AC4.1: Check-111 results have check_id='111'."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1"],
-                "PatID": ["P1"],
-                "EncounterDate": [1000],
-                "EncounterType": ["IP"],
-                "DDate": [None],
-                "Discharge_Disposition": [None],
-                "Discharge_Status": [None],
-                "Admitting_Source": [None],
-            }),
-        ])
-        results = check_not_populated(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1"],
+            "PatID": ["P1"],
+            "EncounterDate": [1000],
+            "EncounterType": ["IP"],
+            "DDate": [None],
+            "Discharge_Disposition": [None],
+            "Discharge_Status": [None],
+            "Admitting_Source": [None],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        for result in results:
-            assert result.check_id == "111"
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_not_populated(conn, "encounter", schema)
 
-    def test_severity_from_registry(self) -> None:
+            for result in results:
+                assert result.check_id == "111"
+        finally:
+            conn.close()
+
+    def test_severity_from_registry(self, tmp_path: Path) -> None:
         """Test AC4.2: Severity field matches the check registry definitions."""
+        pytest.importorskip("duckdb")
         schema = get_schema("demographic")
-        chunks = iter([
-            pl.DataFrame({
-                "PatID": ["P1"],
-                "Birth_Date": [1000],
-                "Sex": ["F"],
-                "Hispanic": ["Y"],
-                "Race": ["1"],
-                "ImputedHispanic": [None],
-                "ImputedRace": [None],
-            }),
-        ])
-        results = check_not_populated(schema, chunks)
+        df = pl.DataFrame({
+            "PatID": ["P1"],
+            "Birth_Date": [1000],
+            "Sex": ["F"],
+            "Hispanic": ["Y"],
+            "Race": ["1"],
+            "ImputedHispanic": [None],
+            "ImputedRace": [None],
+        })
+        path = tmp_path / "demographic.parquet"
+        df.write_parquet(path)
 
-        # Get check defs to verify severity values
-        check_defs = get_not_populated_checks_for_table("demographic")
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "demographic" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_not_populated(conn, "demographic", schema)
 
-        # Explicitly assert expected severity values from registry
-        imputed_hispanic_def = next(c for c in check_defs if c.column == "ImputedHispanic")
-        imputed_race_def = next(c for c in check_defs if c.column == "ImputedRace")
-        assert imputed_hispanic_def.severity == "Note"
-        assert imputed_race_def.severity == "Note"
+            # Get check defs to verify severity values
+            check_defs = get_not_populated_checks_for_table("demographic")
 
-        # Verify results match the registry definitions
-        for result in results:
-            check_def = next(c for c in check_defs if c.column == result.column)
-            assert result.severity == check_def.severity
+            # Explicitly assert expected severity values from registry
+            imputed_hispanic_def = next(c for c in check_defs if c.column == "ImputedHispanic")
+            imputed_race_def = next(c for c in check_defs if c.column == "ImputedRace")
+            assert imputed_hispanic_def.severity == "Note"
+            assert imputed_race_def.severity == "Note"
 
-    def test_multiple_chunks_accumulation(self) -> None:
-        """Test that non-null counts accumulate correctly across multiple chunks."""
+            # Verify results match the registry definitions
+            for result in results:
+                check_def = next(c for c in check_defs if c.column == result.column)
+                assert result.severity == check_def.severity
+        finally:
+            conn.close()
+
+    def test_single_sql_query_per_column(self, tmp_path: Path) -> None:
+        """Test that DuckDB SQL aggregation happens at once, not per-chunk."""
+        pytest.importorskip("duckdb")
         schema = get_schema("encounter")
-        chunks = iter([
-            pl.DataFrame({
-                "EncounterID": ["E1", "E2"],
-                "PatID": ["P1", "P2"],
-                "EncounterDate": [1000, 2000],
-                "EncounterType": ["IP", "OP"],
-                "DDate": [None, 1001],  # One null, one value
-                "Discharge_Disposition": [None, None],
-                "Discharge_Status": [None, None],
-                "Admitting_Source": [None, None],
-            }),
-            pl.DataFrame({
-                "EncounterID": ["E3"],
-                "PatID": ["P3"],
-                "EncounterDate": [3000],
-                "EncounterType": ["ED"],
-                "DDate": [None],
-                "Discharge_Disposition": [None],
-                "Discharge_Status": [None],
-                "Admitting_Source": [None],
-            }),
-        ])
-        results = check_not_populated(schema, chunks)
+        df = pl.DataFrame({
+            "EncounterID": ["E1", "E2", "E3"],
+            "PatID": ["P1", "P2", "P3"],
+            "EncounterDate": [1000, 2000, 3000],
+            "EncounterType": ["IP", "OP", "ED"],
+            "DDate": [None, 1001, None],  # One non-null
+            "Discharge_Disposition": [None, None, None],
+            "Discharge_Status": [None, None, None],
+            "Admitting_Source": [None, None, None],
+        })
+        path = tmp_path / "encounter.parquet"
+        df.write_parquet(path)
 
-        # 3 total rows, DDate has at least 1 non-null → entire column is populated
-        # n_passed = total_rows = 3, n_failed = 0
-        ddate_result = next(r for r in results if r.column == "DDate")
-        assert ddate_result.n_passed == 3
-        assert ddate_result.n_failed == 0
+        conn = create_connection()
+        try:
+            safe_path = str(path).replace("'", "''")
+            conn.execute(f'CREATE VIEW "encounter" AS SELECT * FROM read_parquet(\'{safe_path}\')')
+            results = check_not_populated(conn, "encounter", schema)
 
-        # But Discharge_Disposition has all nulls → entire column is not populated
-        disposition_result = next(r for r in results if r.column == "Discharge_Disposition")
-        assert disposition_result.n_passed == 0
-        assert disposition_result.n_failed == 3
+            # 3 total rows, DDate has at least 1 non-null → entire column is populated
+            ddate_result = next(r for r in results if r.column == "DDate")
+            assert ddate_result.n_passed == 3
+            assert ddate_result.n_failed == 0
+
+            # But Discharge_Disposition has all nulls → entire column is not populated
+            disposition_result = next(r for r in results if r.column == "Discharge_Disposition")
+            assert disposition_result.n_passed == 0
+            assert disposition_result.n_failed == 3
+        finally:
+            conn.close()
 
 
 class TestDateOrdering:
