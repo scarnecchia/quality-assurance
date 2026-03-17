@@ -238,6 +238,83 @@ class TestTableValidatorMultipleAccumulators:
         custom_result = result.accumulator_results["custom"]
         assert custom_result["call_count"] >= 1, "Custom accumulator should receive at least one chunk"
 
+    def test_extensibility_integration_custom_accumulator(self, tmp_path: Path) -> None:
+        """GH-8.AC2.3, GH-8.AC2.4: Custom accumulator pattern demonstrates extensibility.
+
+        This integration test documents the extensibility pattern for future developers:
+        - A custom ChunkAccumulator (ChunkCounter) is defined with add_chunk() and result()
+        - It is registered with TableValidator alongside profiling and validation accumulators
+        - It receives every chunk without modifying TableValidator
+        - Total rows from chunks matches expected total
+        """
+
+        class ChunkCounter:
+            """Custom accumulator that counts rows across all chunks."""
+
+            def __init__(self) -> None:
+                self.chunk_heights: list[int] = []
+
+            def add_chunk(self, chunk: pl.DataFrame) -> None:
+                """Record the number of rows in this chunk."""
+                self.chunk_heights.append(chunk.height)
+
+            def result(self) -> dict[str, Any]:
+                """Return the list of chunk heights (for test verification)."""
+                return {"chunk_heights": self.chunk_heights}
+
+        # Create test data with 100 rows to verify chunk processing
+        df = pl.DataFrame({
+            "PatID": [f"P{i}" for i in range(100)],
+            "Birth_Date": list(range(1000, 1100)),
+            "Sex": ["F", "M"] * 50,
+            "Hispanic": ["Y", "N"] * 50,
+            "Race": [str(i % 3 + 1) for i in range(100)],
+        })
+        parquet_path = tmp_path / "demographic.parquet"
+        df.write_parquet(parquet_path)
+
+        schema = get_schema("demographic")
+        config = QAConfig(tables={"demographic": parquet_path})
+
+        # Register three accumulators: profiling, validation, and custom
+        chunk_counter = ChunkCounter()
+        validator = TableValidator(
+            table_key="demographic",
+            file_path=parquet_path,
+            schema=schema,
+            config=config,
+            accumulators={
+                "profiling": ProfilingAccumulator(schema),
+                "validation": ValidationChunkAccumulator(schema),
+                "chunk_counter": chunk_counter,
+            },
+            run_global_checks=False,
+        )
+
+        # Run validation
+        result = validator.run()
+
+        # Verify custom accumulator received all chunks (GH-8.AC2.3)
+        counter_result = result.accumulator_results["chunk_counter"]
+        assert "chunk_heights" in counter_result, "Custom accumulator should return chunk_heights"
+
+        chunk_heights = counter_result["chunk_heights"]
+        assert len(chunk_heights) > 0, "Custom accumulator should receive at least one chunk"
+
+        # Verify total rows match expected
+        total_rows_from_chunks = sum(chunk_heights)
+        assert total_rows_from_chunks == 100, f"Expected 100 total rows, got {total_rows_from_chunks}"
+
+        # Verify other accumulators also ran (GH-8.AC2.4 — no modifications needed)
+        assert "profiling" in result.accumulator_results, "Profiling accumulator should be present"
+        assert "validation" in result.accumulator_results, "Validation accumulator should be present"
+
+        profiling_result = result.accumulator_results["profiling"]
+        assert profiling_result.total_rows == 100, "Profiling should see all 100 rows"
+
+        validation_result = result.accumulator_results["validation"]
+        assert validation_result.total_rows == 100, "Validation should see all 100 rows"
+
 
 class TestTableValidatorExceptionPropagation:
     """Test exception propagation from accumulators and global checks (GH-8.AC1.5, AC3.3)."""
