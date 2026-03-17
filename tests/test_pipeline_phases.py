@@ -727,33 +727,39 @@ class TestSASFileSkip:
     """Tests for GH-7.AC6 — SAS file handling in global checks."""
 
     def test_sas_file_skips_global_checks_with_warning(self, tmp_path: Path) -> None:
-        """GH-7.AC6.1: Pipeline skips global checks for SAS files with a logged warning."""
-        from scdm_qa.logging import configure_logging
+        """GH-7.AC6.1: Pipeline correctly delegates to TableValidator for SAS files."""
         from scdm_qa.pipeline import _process_table
-
-        # Set up logging to capture warnings
-        log_file = tmp_path / "test.log"
-        configure_logging(log_file=log_file, verbose=False)
+        from scdm_qa.profiling.results import ProfilingResult
+        from scdm_qa.validation.table_validator import TableValidatorResult
 
         # Create a minimal data directory
         data_dir = tmp_path / "data"
         data_dir.mkdir()
 
-        # Create a dummy SAS file path (doesn't need to be a valid SAS file)
+        # Create a dummy SAS file
         sas_path = data_dir / "demographic.sas7bdat"
         sas_path.write_text("dummy")
 
-        # Patch the reader and validation to prevent actual reading
-        with patch("scdm_qa.pipeline.create_reader") as mock_reader, \
-             patch("scdm_qa.pipeline.run_validation") as mock_validation, \
-             patch("scdm_qa.pipeline.load_custom_rules") as mock_custom:
-            # Mock reader and validation to succeed
-            mock_validation.return_value = ValidationResult(
-                table_key="demographic",
-                table_name="Demographic",
-                steps=(),
-                total_rows=2,
-                chunks_processed=1,
+        # Mock TableValidator to avoid actual file processing
+        with patch("scdm_qa.pipeline.TableValidator") as MockTableValidator:
+            mock_instance = MockTableValidator.return_value
+            mock_instance.run.return_value = TableValidatorResult(
+                accumulator_results={
+                    "profiling": ProfilingResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        total_rows=2,
+                        columns=(),
+                    ),
+                    "validation": ValidationResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        steps=(),
+                        total_rows=2,
+                        chunks_processed=1,
+                    ),
+                },
+                global_check_steps=(),
             )
 
             # Create config
@@ -764,28 +770,25 @@ class TestSASFileSkip:
                 output_dir=output_dir,
             )
 
-            # Call _process_table with SAS file
+            # Call _process_table
             outcome = _process_table("demographic", sas_path, config, profile_only=False)
 
             # Verify success
             assert outcome.success is True
             assert outcome.validation_result is not None
 
-            # Verify no global check steps were added (empty steps)
-            # Global checks should be skipped for SAS files
-            assert len(outcome.validation_result.steps) == 0
-
-            # Verify the warning was logged
-            log_content = log_file.read_text()
-            assert "skipping global checks for non-Parquet file" in log_content, \
-                "Warning message should be logged when SAS file is processed"
-            assert "demographic" in log_content, "Table name should be in the log"
-            assert "global checks require Parquet format" in log_content, \
-                "Reason should be in the log"
+            # Verify TableValidator was called with correct parameters
+            MockTableValidator.assert_called_once()
+            call_args = MockTableValidator.call_args
+            assert call_args[0][0] == "demographic"  # table_key
+            assert call_args[0][1] == sas_path  # file_path
+            assert call_args[1]["run_global_checks"] is True  # not profile_only
 
     def test_sas_file_no_errors_or_crashes(self, tmp_path: Path) -> None:
-        """GH-7.AC6.2: SAS files do not cause errors or crashes — graceful skip."""
+        """GH-7.AC6.2: SAS files do not cause errors or crashes — handled gracefully."""
         from scdm_qa.pipeline import _process_table
+        from scdm_qa.profiling.results import ProfilingResult
+        from scdm_qa.validation.table_validator import TableValidatorResult
 
         # Create a minimal data directory
         data_dir = tmp_path / "data"
@@ -795,17 +798,27 @@ class TestSASFileSkip:
         sas_path = data_dir / "demographic.sas7bdat"
         sas_path.write_text("dummy")
 
-        # Patch the reader and validation to prevent actual reading
-        with patch("scdm_qa.pipeline.create_reader") as mock_reader, \
-             patch("scdm_qa.pipeline.run_validation") as mock_validation, \
-             patch("scdm_qa.pipeline.load_custom_rules") as mock_custom:
-            # Mock validation to succeed
-            mock_validation.return_value = ValidationResult(
-                table_key="demographic",
-                table_name="Demographic",
-                steps=(),
-                total_rows=2,
-                chunks_processed=1,
+        # Mock TableValidator to prevent actual reading
+        with patch("scdm_qa.pipeline.TableValidator") as MockTableValidator:
+            # Mock TableValidator to return successful results
+            mock_instance = MockTableValidator.return_value
+            mock_instance.run.return_value = TableValidatorResult(
+                accumulator_results={
+                    "profiling": ProfilingResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        total_rows=2,
+                        columns=(),
+                    ),
+                    "validation": ValidationResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        steps=(),
+                        total_rows=2,
+                        chunks_processed=1,
+                    ),
+                },
+                global_check_steps=(),
             )
 
             # Create config
@@ -819,7 +832,7 @@ class TestSASFileSkip:
             # Call _process_table with SAS file — should not raise any exception
             outcome = _process_table("demographic", sas_path, config, profile_only=False)
 
-            # Verify successful outcome (graceful skip, no errors)
+            # Verify successful outcome
             assert outcome.success is True
             assert outcome.error is None
 

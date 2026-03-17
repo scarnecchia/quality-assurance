@@ -2,31 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-import duckdb
 import structlog
 
 from scdm_qa.config import QAConfig
 from scdm_qa.profiling.accumulator import ProfilingAccumulator
 from scdm_qa.profiling.results import ProfilingResult
-from scdm_qa.readers import create_reader
 from scdm_qa.reporting.dashboard import save_dashboard
 from scdm_qa.schemas import get_schema
-from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.schemas.custom_rules import load_custom_rules
-from scdm_qa.validation.duckdb_utils import create_connection
-from scdm_qa.validation.global_checks import (
-    check_cause_of_death,
-    check_date_ordering,
-    check_enc_combinations,
-    check_enrollment_gaps,
-    check_not_populated,
-    check_overlapping_spans,
-    check_sort_order,
-    check_uniqueness,
-)
-from scdm_qa.validation.results import StepResult, ValidationResult
-from scdm_qa.validation.runner import run_validation
+from scdm_qa.validation.results import ValidationResult
+from scdm_qa.validation.table_validator import TableValidator
+from scdm_qa.validation.validation_chunk_accumulator import ValidationChunkAccumulator
 
 log = structlog.get_logger(__name__)
 
@@ -150,123 +138,28 @@ def _process_table(
         return TableOutcome(table_key=table_key, success=False, error=f"file not found: {file_path}")
 
     schema = get_schema(table_key)
-    reader = create_reader(file_path, chunk_size=config.chunk_size)
     custom_extend_fn = load_custom_rules(table_key, config.custom_rules_dir)
 
-    profiling_acc = ProfilingAccumulator(schema)
-
-    if profile_only:
-        for chunk in reader.chunks():
-            profiling_acc.add_chunk(chunk)
-        return TableOutcome(
-            table_key=table_key,
-            success=True,
-            profiling_result=profiling_acc.result(),
+    accumulators: dict[str, Any] = {
+        "profiling": ProfilingAccumulator(schema),
+    }
+    if not profile_only:
+        accumulators["validation"] = ValidationChunkAccumulator(
+            schema,
+            max_failing_rows=config.max_failing_rows,
+            custom_extend_fn=custom_extend_fn,
         )
 
-    # Single-pass: profiling accumulator runs inside validation runner
-    validation_result = run_validation(
-        reader,
-        schema,
-        max_failing_rows=config.max_failing_rows,
-        profiling_accumulator=profiling_acc,
-        custom_extend_fn=custom_extend_fn,
-    )
+    tv_result = TableValidator(
+        table_key, file_path, schema, config, accumulators,
+        run_global_checks=not profile_only,
+    ).run()
 
-    profiling_result = profiling_acc.result()
+    profiling_result = tv_result.accumulator_results["profiling"]
+    validation_result = tv_result.accumulator_results.get("validation")
 
-    # Global checks (require full-table access)
-    global_steps: list[StepResult] = []
-    is_parquet = file_path.suffix.lower() == ".parquet"
-
-    if not is_parquet:
-        log.warning(
-            "skipping global checks for non-Parquet file",
-            table=table_key,
-            file=str(file_path),
-            reason="global checks require Parquet format",
-        )
-    else:
-        conn: duckdb.DuckDBPyConnection | None = None
-        try:
-            conn = create_connection(
-                memory_limit=config.duckdb_memory_limit,
-                threads=config.duckdb_threads,
-                temp_directory=config.duckdb_temp_directory,
-            )
-            safe_path = str(file_path).replace("'", "''")
-            conn.execute(
-                f'CREATE VIEW "{table_key}" AS SELECT * FROM read_parquet(\'{safe_path}\')'
-            )
-            log.debug("registered global check view", table=table_key)
-
-            # Global checks via DuckDB
-            if schema.unique_row:
-                uniqueness_step = check_uniqueness(
-                    conn,
-                    table_key,
-                    schema,
-                    max_failing_rows=config.max_failing_rows,
-                )
-                if uniqueness_step is not None:
-                    global_steps.append(uniqueness_step)
-
-            if schema.sort_order:
-                sort_step = check_sort_order(conn, table_key, schema)
-                if sort_step is not None:
-                    global_steps.append(sort_step)
-
-            if get_not_populated_checks_for_table(schema.table_key):
-                not_pop_steps = check_not_populated(conn, table_key, schema)
-                global_steps.extend(not_pop_steps)
-
-            if get_date_ordering_checks_for_table(schema.table_key):
-                date_order_steps = check_date_ordering(
-                    conn, table_key, schema,
-                    max_failing_rows=config.max_failing_rows,
-                )
-                global_steps.extend(date_order_steps)
-
-            if schema.table_key == "cause_of_death":
-                cod_steps = check_cause_of_death(
-                    conn, table_key, schema,
-                    max_failing_rows=config.max_failing_rows,
-                )
-                global_steps.extend(cod_steps)
-
-            if schema.table_key == "enrollment":
-                overlap_step = check_overlapping_spans(
-                    conn,
-                    table_key,
-                    schema,
-                    max_failing_rows=config.max_failing_rows,
-                )
-                if overlap_step is not None:
-                    global_steps.append(overlap_step)
-
-                gaps_step = check_enrollment_gaps(
-                    conn, table_key, schema,
-                    max_failing_rows=config.max_failing_rows,
-                )
-                if gaps_step is not None:
-                    global_steps.append(gaps_step)
-
-            if schema.table_key == "encounter":
-                enc_combo_steps = check_enc_combinations(
-                    conn, table_key, schema,
-                    max_failing_rows=config.max_failing_rows,
-                )
-                global_steps.extend(enc_combo_steps)
-
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception as e:
-                    log.warning("failed to close DuckDB connection", error=str(e))
-
-    if global_steps:
-        all_steps = list(validation_result.steps) + global_steps
+    if validation_result is not None and tv_result.global_check_steps:
+        all_steps = list(validation_result.steps) + list(tv_result.global_check_steps)
         validation_result = ValidationResult(
             table_key=validation_result.table_key,
             table_name=validation_result.table_name,
