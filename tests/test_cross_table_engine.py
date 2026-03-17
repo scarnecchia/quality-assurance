@@ -12,14 +12,14 @@ import pyarrow.parquet as pq
 import pytest
 
 from scdm_qa.config import QAConfig
-from scdm_qa.schemas import get_schema
-from scdm_qa.schemas.models import CrossTableCheckDef, TableSchema, ColumnDef
-from scdm_qa.validation.cross_table import (
-    run_cross_table_checks,
+from scdm_qa.readers.conversion import (
     build_arrow_schema,
-    _convert_sas_to_parquet,
+    convert_sas_to_parquet,
     _build_write_schema,
 )
+from scdm_qa.schemas import get_schema
+from scdm_qa.schemas.models import CrossTableCheckDef, TableSchema, ColumnDef
+from scdm_qa.validation.cross_table import run_cross_table_checks
 
 
 @pytest.fixture
@@ -777,7 +777,7 @@ class TestStreamingSasConversion:
         mock_reader.chunks.return_value = [chunk1, chunk2, chunk3]
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
-            result_path = _convert_sas_to_parquet(
+            result_path = convert_sas_to_parquet(
                 Path("/fake/path.sas7bdat"),
                 chunk_size=500_000,
                 table_key="test_table",
@@ -799,7 +799,7 @@ class TestStreamingSasConversion:
         mock_reader.chunks.return_value = [chunk1, chunk2, chunk3]
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
-            result_path = _convert_sas_to_parquet(
+            result_path = convert_sas_to_parquet(
                 Path("/fake/path.sas7bdat"),
                 chunk_size=500_000,
                 table_key="test_table",
@@ -823,7 +823,7 @@ class TestStreamingSasConversion:
         mock_reader.chunks.return_value = [chunk]
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
-            result_path = _convert_sas_to_parquet(
+            result_path = convert_sas_to_parquet(
                 Path("/fake/path.sas7bdat"),
                 chunk_size=500_000,
                 table_key="demographic",
@@ -846,7 +846,7 @@ class TestStreamingSasConversion:
         mock_reader.chunks.return_value = []
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
-            result_path = _convert_sas_to_parquet(
+            result_path = convert_sas_to_parquet(
                 Path("/fake/path.sas7bdat"),
                 chunk_size=500_000,
                 table_key="demographic",
@@ -872,7 +872,7 @@ class TestStreamingSasConversion:
         mock_reader.chunks.return_value = [chunk]
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
-            result_path = _convert_sas_to_parquet(
+            result_path = convert_sas_to_parquet(
                 Path("/fake/path.sas7bdat"),
                 chunk_size=500_000,
                 table_key="demographic",
@@ -896,7 +896,7 @@ class TestStreamingSasConversion:
         mock_reader.chunks.return_value = [chunk]
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
-            result_path = _convert_sas_to_parquet(
+            result_path = convert_sas_to_parquet(
                 Path("/fake/path.sas7bdat"),
                 chunk_size=500_000,
                 table_key="demographic",
@@ -924,7 +924,7 @@ class TestStreamingSasConversion:
         caplog.set_level(logging.WARNING)
 
         with mock.patch("scdm_qa.readers.create_reader", return_value=mock_reader):
-            result_path = _convert_sas_to_parquet(
+            result_path = convert_sas_to_parquet(
                 Path("/fake/path.sas7bdat"),
                 chunk_size=500_000,
                 table_key="unknown_table_xyz",
