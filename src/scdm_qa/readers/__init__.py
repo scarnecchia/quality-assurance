@@ -3,6 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from scdm_qa.readers.base import TableMetadata, TableReader
+from scdm_qa.readers.conversion import (
+    build_arrow_schema,
+    convert_sas_to_parquet,
+    converted_parquet,
+)
 
 
 class UnsupportedFormatError(Exception):
@@ -27,5 +32,8 @@ __all__ = [
     "TableMetadata",
     "TableReader",
     "UnsupportedFormatError",
+    "build_arrow_schema",
+    "convert_sas_to_parquet",
+    "converted_parquet",
     "create_reader",
 ]

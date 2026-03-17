@@ -2,29 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import structlog
 
 from scdm_qa.config import QAConfig
 from scdm_qa.profiling.accumulator import ProfilingAccumulator
 from scdm_qa.profiling.results import ProfilingResult
-from scdm_qa.readers import create_reader
 from scdm_qa.reporting.dashboard import save_dashboard
 from scdm_qa.schemas import get_schema
-from scdm_qa.schemas.checks import get_date_ordering_checks_for_table, get_not_populated_checks_for_table
 from scdm_qa.schemas.custom_rules import load_custom_rules
-from scdm_qa.validation.global_checks import (
-    check_cause_of_death,
-    check_date_ordering,
-    check_enc_combinations,
-    check_enrollment_gaps,
-    check_not_populated,
-    check_overlapping_spans,
-    check_sort_order,
-    check_uniqueness,
-)
-from scdm_qa.validation.results import StepResult, ValidationResult
-from scdm_qa.validation.runner import run_validation
+from scdm_qa.validation.results import ValidationResult
+from scdm_qa.validation.table_validator import TableValidator
+from scdm_qa.validation.validation_chunk_accumulator import ValidationChunkAccumulator
 
 log = structlog.get_logger(__name__)
 
@@ -148,106 +138,28 @@ def _process_table(
         return TableOutcome(table_key=table_key, success=False, error=f"file not found: {file_path}")
 
     schema = get_schema(table_key)
-    reader = create_reader(file_path, chunk_size=config.chunk_size)
     custom_extend_fn = load_custom_rules(table_key, config.custom_rules_dir)
 
-    profiling_acc = ProfilingAccumulator(schema)
-
-    if profile_only:
-        for chunk in reader.chunks():
-            profiling_acc.add_chunk(chunk)
-        return TableOutcome(
-            table_key=table_key,
-            success=True,
-            profiling_result=profiling_acc.result(),
-        )
-
-    # Single-pass: profiling accumulator runs inside validation runner
-    validation_result = run_validation(
-        reader,
-        schema,
-        max_failing_rows=config.max_failing_rows,
-        profiling_accumulator=profiling_acc,
-        custom_extend_fn=custom_extend_fn,
-    )
-
-    profiling_result = profiling_acc.result()
-
-    # Global checks (uniqueness + sort order)
-    global_steps: list[StepResult] = []
-
-    if schema.unique_row:
-        uniqueness_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        uniqueness_step = check_uniqueness(
-            file_path,
+    accumulators: dict[str, Any] = {
+        "profiling": ProfilingAccumulator(schema),
+    }
+    if not profile_only:
+        accumulators["validation"] = ValidationChunkAccumulator(
             schema,
-            chunks=uniqueness_reader.chunks(),
             max_failing_rows=config.max_failing_rows,
-            duckdb_memory_limit=config.duckdb_memory_limit,
-            duckdb_threads=config.duckdb_threads,
-            duckdb_temp_directory=config.duckdb_temp_directory,
+            custom_extend_fn=custom_extend_fn,
         )
-        if uniqueness_step is not None:
-            global_steps.append(uniqueness_step)
 
-    if schema.sort_order:
-        # NOTE: This requires a second scan. Could be optimised by collecting
-        # chunk boundary rows during the validation pass.
-        sort_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        sort_step = check_sort_order(schema, sort_reader.chunks())
-        if sort_step is not None:
-            global_steps.append(sort_step)
+    tv_result = TableValidator(
+        table_key, file_path, schema, config, accumulators,
+        run_global_checks=not profile_only,
+    ).run()
 
-    if get_not_populated_checks_for_table(schema.table_key):
-        # L1 global check: not populated (check 111)
-        not_pop_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        not_pop_steps = check_not_populated(schema, not_pop_reader.chunks())
-        global_steps.extend(not_pop_steps)
+    profiling_result = tv_result.accumulator_results["profiling"]
+    validation_result = tv_result.accumulator_results.get("validation")
 
-    # L2 check: date ordering (check 226)
-    if get_date_ordering_checks_for_table(schema.table_key):
-        date_order_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        date_order_steps = check_date_ordering(schema, date_order_reader.chunks(), max_failing_rows=config.max_failing_rows)
-        global_steps.extend(date_order_steps)
-
-    # L2 check: cause of death (checks 236, 237)
-    if schema.table_key == "cause_of_death":
-        cod_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        cod_steps = check_cause_of_death(schema, cod_reader.chunks(), max_failing_rows=config.max_failing_rows)
-        global_steps.extend(cod_steps)
-
-    # L2 checks: enrollment overlaps and gaps (checks 215, 216)
-    if schema.table_key == "enrollment":
-        overlap_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        overlap_step = check_overlapping_spans(
-            file_path, schema, overlap_reader.chunks(),
-            max_failing_rows=config.max_failing_rows,
-            duckdb_memory_limit=config.duckdb_memory_limit,
-            duckdb_threads=config.duckdb_threads,
-            duckdb_temp_directory=config.duckdb_temp_directory,
-        )
-        if overlap_step is not None:
-            global_steps.append(overlap_step)
-
-        gaps_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        gaps_step = check_enrollment_gaps(
-            schema, gaps_reader.chunks(),
-            max_failing_rows=config.max_failing_rows,
-        )
-        if gaps_step is not None:
-            global_steps.append(gaps_step)
-
-    # L2 checks: ENC field combinations (checks 244, 245)
-    if schema.table_key == "encounter":
-        enc_combo_reader = create_reader(file_path, chunk_size=config.chunk_size)
-        enc_combo_steps = check_enc_combinations(
-            schema, enc_combo_reader.chunks(),
-            max_failing_rows=config.max_failing_rows,
-        )
-        global_steps.extend(enc_combo_steps)
-
-    if global_steps:
-        all_steps = list(validation_result.steps) + global_steps
+    if validation_result is not None and tv_result.global_check_steps:
+        all_steps = list(validation_result.steps) + list(tv_result.global_check_steps)
         validation_result = ValidationResult(
             table_key=validation_result.table_key,
             table_name=validation_result.table_name,

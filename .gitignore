@@ -47,5 +47,8 @@ htmlcov/
 # Logs
 *.log
 
+# Worktrees
+.worktrees/
+
 # Config
 config.toml

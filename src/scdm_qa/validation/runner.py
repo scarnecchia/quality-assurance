@@ -50,7 +50,7 @@ def run_validation(
         )
 
         if chunk_num == 1:
-            step_descriptions = _build_step_descriptions(schema, set(chunk.columns))
+            step_descriptions = build_step_descriptions(schema, set(chunk.columns))
 
         validation = build_validation(chunk, schema, thresholds=thresholds)
         if custom_extend_fn is not None:
@@ -65,14 +65,14 @@ def run_validation(
         n_failed = result.n_failed()
 
         # CRITICAL: Verify step_descriptions length matches pointblank results after first chunk
-        # to catch silent drift between _build_step_descriptions and build_validation.
+        # to catch silent drift between build_step_descriptions and build_validation.
         if chunk_num == 1:
             num_steps_in_descriptions = len(step_descriptions)
             num_steps_in_results = len(n_passed)
             if num_steps_in_descriptions != num_steps_in_results:
                 raise ValueError(
                     f"Step count mismatch for table '{schema.table_key}': "
-                    f"_build_step_descriptions generated {num_steps_in_descriptions} steps, "
+                    f"build_step_descriptions generated {num_steps_in_descriptions} steps, "
                     f"but build_validation produced {num_steps_in_results} steps in pointblank results. "
                     f"This indicates the two code paths have drifted. Both must iterate columns and rules in the same order."
                 )
@@ -109,7 +109,7 @@ def run_validation(
     return final
 
 
-def _build_step_descriptions(
+def build_step_descriptions(
     schema: TableSchema,
     present_columns: set[str],
 ) -> list[tuple[int, str, str, str, str | None, str | None]]:

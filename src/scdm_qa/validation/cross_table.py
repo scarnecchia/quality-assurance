@@ -5,13 +5,13 @@
 from __future__ import annotations
 
 import structlog
-import tempfile
 from pathlib import Path
 
 import duckdb
 import polars as pl
 
 from scdm_qa.config import QAConfig
+from scdm_qa.readers.conversion import build_arrow_schema, convert_sas_to_parquet
 from scdm_qa.schemas import get_schema
 from scdm_qa.schemas.models import CrossTableCheckDef
 from scdm_qa.validation.duckdb_utils import create_connection
@@ -52,7 +52,9 @@ def run_cross_table_checks(
         for table_key, file_path in config.tables.items():
             try:
                 if file_path.suffix.lower() == ".sas7bdat":
-                    temp_path = _convert_sas_to_parquet(file_path, chunk_size=config.chunk_size)
+                    temp_path = convert_sas_to_parquet(
+                        file_path, config.chunk_size, table_key=table_key
+                    )
                     temp_parquet_files.append(temp_path)
                     safe_path = str(temp_path).replace("'", "''")
                 else:
@@ -117,43 +119,6 @@ def run_cross_table_checks(
                 log.warning("failed to delete temp parquet file", path=str(tmp_path), error=str(e))
 
     return results
-
-
-def _convert_sas_to_parquet(sas_path: Path, chunk_size: int = 500_000) -> Path:
-    """Convert SAS7BDAT to temp parquet for DuckDB registration using chunked reading.
-
-    Args:
-        sas_path: Path to .sas7bdat file
-        chunk_size: Chunk size for reading
-
-    Returns:
-        Path to temporary parquet file
-
-    Note:
-        This still concatenates all chunks in memory before writing. For truly large files
-        that don't fit in memory, an incremental parquet writer would be needed.
-    """
-    from scdm_qa.readers import create_reader
-
-    reader = create_reader(sas_path, chunk_size=chunk_size)
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_file:
-        tmp_path = Path(tmp_file.name)
-
-    chunks = list(reader.chunks())
-    if chunks:
-        combined = pl.concat(chunks)
-        combined.write_parquet(tmp_path)
-    else:
-        combined = pl.DataFrame()
-        combined.write_parquet(tmp_path)
-
-    log.warning(
-        "converted SAS file to temp parquet",
-        sas_path=str(sas_path),
-        tmp_path=str(tmp_path),
-        n_rows=combined.height,
-    )
-    return tmp_path
 
 
 def _run_check(

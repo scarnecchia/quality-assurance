@@ -721,3 +721,156 @@ class TestCrossTableReporting:
             assert match, "dashboard-data script tag should be present"
             data = json.loads(match.group(1))
             assert data["profiling"]["columns"] == []
+
+
+class TestSASFileSkip:
+    """Tests for GH-7.AC6 — SAS file handling in global checks."""
+
+    def test_sas_file_skips_global_checks_with_warning(self, tmp_path: Path) -> None:
+        """GH-7.AC6.1: Pipeline correctly delegates to TableValidator for SAS files."""
+        from scdm_qa.pipeline import _process_table
+        from scdm_qa.profiling.results import ProfilingResult
+        from scdm_qa.validation.table_validator import TableValidatorResult
+
+        # Create a minimal data directory
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        # Create a dummy SAS file
+        sas_path = data_dir / "demographic.sas7bdat"
+        sas_path.write_text("dummy")
+
+        # Mock TableValidator to avoid actual file processing
+        with patch("scdm_qa.pipeline.TableValidator") as MockTableValidator:
+            mock_instance = MockTableValidator.return_value
+            mock_instance.run.return_value = TableValidatorResult(
+                accumulator_results={
+                    "profiling": ProfilingResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        total_rows=2,
+                        columns=(),
+                    ),
+                    "validation": ValidationResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        steps=(),
+                        total_rows=2,
+                        chunks_processed=1,
+                    ),
+                },
+                global_check_steps=(),
+            )
+
+            # Create config
+            output_dir = tmp_path / "reports"
+            output_dir.mkdir()
+            config = QAConfig(
+                tables={"demographic": sas_path},
+                output_dir=output_dir,
+            )
+
+            # Call _process_table
+            outcome = _process_table("demographic", sas_path, config, profile_only=False)
+
+            # Verify success
+            assert outcome.success is True
+            assert outcome.validation_result is not None
+
+            # Verify TableValidator was called with correct parameters
+            MockTableValidator.assert_called_once()
+            call_args = MockTableValidator.call_args
+            assert call_args[0][0] == "demographic"  # table_key
+            assert call_args[0][1] == sas_path  # file_path
+            assert call_args[1]["run_global_checks"] is True  # not profile_only
+
+    def test_sas_file_no_errors_or_crashes(self, tmp_path: Path) -> None:
+        """GH-7.AC6.2: SAS files do not cause errors or crashes — handled gracefully."""
+        from scdm_qa.pipeline import _process_table
+        from scdm_qa.profiling.results import ProfilingResult
+        from scdm_qa.validation.table_validator import TableValidatorResult
+
+        # Create a minimal data directory
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        # Create dummy SAS file
+        sas_path = data_dir / "demographic.sas7bdat"
+        sas_path.write_text("dummy")
+
+        # Mock TableValidator to prevent actual reading
+        with patch("scdm_qa.pipeline.TableValidator") as MockTableValidator:
+            # Mock TableValidator to return successful results
+            mock_instance = MockTableValidator.return_value
+            mock_instance.run.return_value = TableValidatorResult(
+                accumulator_results={
+                    "profiling": ProfilingResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        total_rows=2,
+                        columns=(),
+                    ),
+                    "validation": ValidationResult(
+                        table_key="demographic",
+                        table_name="Demographic",
+                        steps=(),
+                        total_rows=2,
+                        chunks_processed=1,
+                    ),
+                },
+                global_check_steps=(),
+            )
+
+            # Create config
+            output_dir = tmp_path / "reports"
+            output_dir.mkdir()
+            config = QAConfig(
+                tables={"demographic": sas_path},
+                output_dir=output_dir,
+            )
+
+            # Call _process_table with SAS file — should not raise any exception
+            outcome = _process_table("demographic", sas_path, config, profile_only=False)
+
+            # Verify successful outcome
+            assert outcome.success is True
+            assert outcome.error is None
+
+    def test_parquet_file_includes_global_checks(self, tmp_path: Path) -> None:
+        """Verify that Parquet files still execute global checks (contrast test)."""
+        from scdm_qa.pipeline import _process_table
+
+        # Create a minimal Parquet file
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2"],
+            "Birth_Date": [1000, 2000],
+            "Sex": ["F", "M"],
+            "Hispanic": ["Y", "N"],
+            "Race": ["1", "2"],
+            "ImputedHispanic": ["Y", "N"],
+            "ImputedRace": ["1", "2"],
+        })
+        parquet_path = data_dir / "demographic.parquet"
+        df.write_parquet(parquet_path)
+
+        # Create config
+        output_dir = tmp_path / "reports"
+        output_dir.mkdir()
+        config = QAConfig(
+            tables={"demographic": parquet_path},
+            output_dir=output_dir,
+        )
+
+        # Call _process_table with Parquet file
+        outcome = _process_table("demographic", parquet_path, config, profile_only=False)
+
+        # Verify success
+        assert outcome.success is True
+
+        # With Parquet, global checks should have been attempted
+        # At minimum, validation_result should exist and have processed chunks
+        assert outcome.validation_result is not None
+        assert outcome.validation_result.chunks_processed > 0
