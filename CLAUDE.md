@@ -28,8 +28,8 @@ Last verified: 2026-03-16
   - `pipeline.py` - Orchestrator: L1 per-table validation, L2 cross-table validation, exit code logic
   - `logging.py` - structlog setup (console + JSON file)
   - `schemas/` - SCDM table definitions, JSON spec parser, pointblank rule builder, L1/L2 check registry, code check defs, cross-table check defs
-  - `readers/` - Chunked file readers (Parquet, SAS) behind a Protocol
-  - `validation/` - Per-chunk validation runner, accumulator, L0/L1/L2 global checks, cross-table validation engine
+  - `readers/` - Chunked file readers (Parquet, SAS) behind a Protocol, SAS-to-Parquet conversion utilities
+  - `validation/` - Per-chunk validation runner, chunk accumulators, TableValidator (L1 orchestrator), L0/L1/L2 global checks, cross-table validation engine
   - `profiling/` - Streaming column statistics accumulator
   - `reporting/` - Dashboard report generator (serialise.py, dashboard.py, Jinja2 templates, vendored JS/CSS)
 - `tests/` - pytest tests (one file per module)
@@ -40,7 +40,7 @@ Last verified: 2026-03-16
 - Chunks are `polars.DataFrame` throughout the pipeline
 - Validation uses pointblank for rule expression
 - Single-pass architecture: profiling runs inside the validation loop
-- Global checks (uniqueness, sort order, L1/L2 checks) run via DuckDB SQL against Parquet views; SAS files skip global checks
+- Global checks (uniqueness, sort order, L1/L2 checks) run via DuckDB SQL against Parquet views; SAS files are converted to temporary Parquet for global checks via streaming writes (memory bounded)
 - Pipeline runs in two phases: L1 (per-table) then L2 (cross-table); each can be run independently via `--l1-only` / `--l2-only` CLI flags or `run_l1` / `run_l2` config options
 - StepResult carries `check_id` and `severity` ("Fail" | "Warn" | "Note" | None)
 - Exit codes are severity-aware: 0=pass (no non-Note failures), 1=warnings (failures within threshold), 2=errors or threshold exceeded (Note-severity checks are informational and never escalate exit code)
