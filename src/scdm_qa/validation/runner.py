@@ -65,7 +65,7 @@ def run_validation(
         n_failed = result.n_failed()
 
         # CRITICAL: Verify step_descriptions length matches pointblank results after first chunk
-        # to catch silent drift between _build_step_descriptions and build_validation.
+        # to catch silent drift between build_step_descriptions and build_validation.
         if chunk_num == 1:
             num_steps_in_descriptions = len(step_descriptions)
             num_steps_in_results = len(n_passed)
