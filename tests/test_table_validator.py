@@ -513,6 +513,139 @@ class TestTableValidatorSASSupport:
         # Since we can't easily inspect the temp file from outside, we trust the
         # converted_parquet context manager's finally block
 
+    def test_sas_and_parquet_global_checks_structural_equivalence(self, tmp_path: Path) -> None:
+        """AC4.3: SAS and Parquet global check results have identical structure.
+
+        Runs TableValidator on equivalent SAS and Parquet files with identical data,
+        then compares the structure of global_check_steps:
+        - Same check_id values in the same order
+        - Same StepResult fields are populated (non-None where expected)
+
+        This test mocks the SAS reader and converted_parquet to simulate reading
+        SAS data, then validates that the SAS->Parquet conversion path produces
+        identical global_check_steps.
+        """
+        from scdm_qa.readers import TableReader
+
+        # Create test data with specific characteristics to trigger various checks
+        df = pl.DataFrame({
+            "PatID": ["P1", "P2", "P3", "P4", "P5"],
+            "Birth_Date": [1000, 2000, 3000, 4000, 5000],
+            "Sex": ["F", "M", "F", "M", "F"],
+            "Hispanic": ["Y", "N", "Y", "N", "Y"],
+            "Race": ["1", "2", "3", "1", "2"],
+        })
+
+        # Create Parquet file
+        parquet_path = tmp_path / "demographic.parquet"
+        df.write_parquet(parquet_path)
+
+        schema = get_schema("demographic")
+        config = QAConfig(tables={"demographic": parquet_path})
+
+        # Run TableValidator on Parquet
+        parquet_validator = TableValidator(
+            table_key="demographic",
+            file_path=parquet_path,
+            schema=schema,
+            config=config,
+            accumulators={},
+            run_global_checks=True,
+        )
+        parquet_result = parquet_validator.run()
+
+        # Run TableValidator on SAS with mocked reader and converted_parquet
+        # Create a mock SAS file path (won't actually be read, but will trigger SAS branch)
+        sas_path = tmp_path / "demographic.sas7bdat"
+        sas_path.write_bytes(b"mock sas data")
+
+        config_sas = QAConfig(tables={"demographic": sas_path})
+        sas_validator = TableValidator(
+            table_key="demographic",
+            file_path=sas_path,
+            schema=schema,
+            config=config_sas,
+            accumulators={},
+            run_global_checks=True,
+        )
+
+        # Create a mock reader that returns the same data
+        class MockReader(TableReader):
+            def __init__(self, df: pl.DataFrame, chunk_size: int):
+                self.df = df
+                self.chunk_size = chunk_size
+
+            def chunks(self):
+                for i in range(0, len(self.df), self.chunk_size):
+                    yield self.df[i : i + self.chunk_size]
+
+        # Mock both create_reader (for SAS reading) and converted_parquet
+        from contextlib import contextmanager
+
+        @contextmanager
+        def mock_converted_parquet(sas_file, chunk_size, table_key=None):
+            """Mock: yield the same Parquet file for comparison."""
+            yield parquet_path
+
+        mock_reader = MockReader(df, config_sas.chunk_size)
+
+        with patch("scdm_qa.validation.table_validator.create_reader", return_value=mock_reader):
+            with patch("scdm_qa.validation.table_validator.converted_parquet", mock_converted_parquet):
+                sas_result = sas_validator.run()
+
+        # Both should have global checks
+        assert len(parquet_result.global_check_steps) > 0, "Parquet should have global checks"
+        assert len(sas_result.global_check_steps) > 0, "SAS should have global checks"
+
+        # Compare structures: same number of steps
+        assert len(parquet_result.global_check_steps) == len(sas_result.global_check_steps), (
+            f"SAS and Parquet should have same number of global checks. "
+            f"Parquet: {len(parquet_result.global_check_steps)}, SAS: {len(sas_result.global_check_steps)}"
+        )
+
+        # Compare check_id values in the same order
+        parquet_check_ids = [s.check_id for s in parquet_result.global_check_steps]
+        sas_check_ids = [s.check_id for s in sas_result.global_check_steps]
+        assert parquet_check_ids == sas_check_ids, (
+            f"SAS and Parquet should have same check_ids in same order. "
+            f"Parquet: {parquet_check_ids}, SAS: {sas_check_ids}"
+        )
+
+        # Compare StepResult fields are populated identically
+        for i, (p_step, s_step) in enumerate(
+            zip(parquet_result.global_check_steps, sas_result.global_check_steps)
+        ):
+            # Core fields that should match
+            assert p_step.check_id == s_step.check_id, (
+                f"Step {i}: check_id mismatch. Parquet: {p_step.check_id}, SAS: {s_step.check_id}"
+            )
+            assert p_step.assertion_type == s_step.assertion_type, (
+                f"Step {i}: assertion_type mismatch. Parquet: {p_step.assertion_type}, SAS: {s_step.assertion_type}"
+            )
+            assert p_step.column == s_step.column, (
+                f"Step {i}: column mismatch. Parquet: {p_step.column}, SAS: {s_step.column}"
+            )
+            assert p_step.severity == s_step.severity, (
+                f"Step {i}: severity mismatch. Parquet: {p_step.severity}, SAS: {s_step.severity}"
+            )
+
+            # Passed/failed counts should match (same data should have same results)
+            assert p_step.n_passed == s_step.n_passed, (
+                f"Step {i}: n_passed mismatch. Parquet: {p_step.n_passed}, SAS: {s_step.n_passed}"
+            )
+            assert p_step.n_failed == s_step.n_failed, (
+                f"Step {i}: n_failed mismatch. Parquet: {p_step.n_failed}, SAS: {s_step.n_failed}"
+            )
+
+            # Field populated status should be identical
+            # (either both have failing_rows or both don't)
+            parquet_has_failing = p_step.failing_rows is not None
+            sas_has_failing = s_step.failing_rows is not None
+            assert parquet_has_failing == sas_has_failing, (
+                f"Step {i}: failing_rows populated status mismatch. "
+                f"Parquet has failing_rows: {parquet_has_failing}, SAS has failing_rows: {sas_has_failing}"
+            )
+
 
 class TestTableValidatorBarrierPattern:
     """Test that chunk N+1 is not dispatched until all accumulators finish chunk N (GH-8.AC3.2)."""
