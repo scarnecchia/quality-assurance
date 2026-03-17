@@ -9,11 +9,11 @@ import pyarrow.parquet as pq
 import pyreadstat
 import pytest
 
-from scdm_qa.schemas import get_schema
-from scdm_qa.validation.cross_table import (
+from scdm_qa.readers.conversion import (
     _SCDM_TYPE_MAP,
-    _convert_sas_to_parquet,
+    convert_sas_to_parquet,
 )
+from scdm_qa.schemas import get_schema
 
 _DATA_DIR = os.environ.get("SCDM_SAS_DATA_DIR", "")
 _DATA_PATH = Path(_DATA_DIR) if _DATA_DIR else None
@@ -64,7 +64,7 @@ class TestSasStreamingIntegration:
         source_row_count = meta.number_rows
 
         # Convert with small chunk_size to force multi-chunk writes
-        parquet_path = _convert_sas_to_parquet(
+        parquet_path = convert_sas_to_parquet(
             sas_path, chunk_size=100, table_key=table_key
         )
 
@@ -96,7 +96,7 @@ class TestSasStreamingIntegration:
             )
 
         # Convert with small chunk_size
-        parquet_path = _convert_sas_to_parquet(
+        parquet_path = convert_sas_to_parquet(
             sas_path, chunk_size=100, table_key=table_key
         )
 
@@ -127,7 +127,7 @@ class TestSasStreamingIntegration:
             pytest.skip(f"No SCDM spec for table_key={table_key}")
 
         # Convert
-        parquet_path = _convert_sas_to_parquet(
+        parquet_path = convert_sas_to_parquet(
             sas_path, chunk_size=100, table_key=table_key
         )
 
